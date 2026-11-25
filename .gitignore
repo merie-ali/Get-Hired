@@ -1,0 +1,9 @@
+.clasp.json
+.clasprc.json
+.env*
+node_modules/
+tests/screens/
+*.csv
+*.xlsx
+*.pdf
+*.docx
