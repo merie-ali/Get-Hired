@@ -71,8 +71,8 @@ var CONFIG = {
 var MSG = {
   NO_SS: 'تعذّر الوصول إلى ملف Google Sheet. تأكد أن السكربت مرتبط بالملف (من داخل الملف: Extensions > Apps Script).',
   NO_TRACKER: 'لم يتم العثور على تبويب «Tracker» في الملف.',
-  EMPTY_TRACKER: 'تبويب «Tracker» فارغ ولا يحتوي على صف العناوين.',
-  MISSING_HEADER: function (h) { return 'العمود «' + h + '» غير موجود في الصف الأول من تبويب Tracker.'; },
+  EMPTY_TAB: function (tab) { return 'تبويب «' + tab + '» فارغ ولا يحتوي على صف العناوين.'; },
+  MISSING_HEADER: function (h, tab) { return 'العمود «' + h + '» غير موجود في الصف الأول من تبويب «' + tab + '».'; },
   BAD_ID: 'معرّف الوظيفة (ID) غير صالح.',
   BAD_DECISION: 'قيمة Decision غير صالحة. المسموح فقط: Go أو Skip أو فارغ.',
   NOT_FOUND: function (id) { return 'لم يتم العثور على الوظيفة «' + id + '». ربما حُذفت أو تغيّر معرّفها. اضغط تحديث ثم حاول مرة أخرى.'; },
@@ -107,28 +107,10 @@ function doGet() {
  */
 function getJobs(forceRefresh) {
   return run_(function () {
-    var force = forceRefresh === true;
-
-    if (!force) {
-      var hit = cacheGet_();
-      if (hit) return ok_({ jobs: hit.jobs, fetchedAt: hit.fetchedAt, cached: true });
-    }
-
-    // Read and fill the cache under the same lock a write uses. Otherwise a slow read could
-    // put pre-write data into the cache just after setDecision invalidated it.
-    var lock = LockService.getScriptLock();
-    var locked = lock.tryLock(CONFIG.LOCK_WAIT_MS);
-    try {
-      if (locked && !force) {
-        var again = cacheGet_();
-        if (again) return ok_({ jobs: again.jobs, fetchedAt: again.fetchedAt, cached: true });
-      }
-      var snapshot = { jobs: readAllJobs_(), fetchedAt: Date.now() };
-      if (locked) cachePut_(snapshot);   // if the lock was not obtained, still answer but do not cache
-      return ok_({ jobs: snapshot.jobs, fetchedAt: snapshot.fetchedAt, cached: false });
-    } finally {
-      if (locked) lock.releaseLock();
-    }
+    var r = cachedRead_(CONFIG.CACHE.KEY, forceRefresh === true, function () {
+      return { jobs: readAllJobs_() };
+    });
+    return ok_({ jobs: r.data.jobs, fetchedAt: r.data.fetchedAt, cached: r.cached });
   });
 }
 
@@ -166,7 +148,7 @@ function setDecision(jobId, decision) {
 
       return ok_({ job: readJobs_(sheet, ctx, row, 1)[0] });
     } finally {
-      cacheClear_();          // invalidate on every write attempt, even a failed one
+      cacheClear_(CONFIG.CACHE.KEY);   // invalidate on every write attempt, even a failed one
       lock.releaseLock();
     }
   });
@@ -302,7 +284,7 @@ function getSpreadsheet_() {
  */
 function getContext_(sheet, fields) {
   var lastCol = sheet.getLastColumn();
-  if (sheet.getLastRow() < 1 || lastCol < 1) throw appError_('EMPTY_TRACKER', MSG.EMPTY_TRACKER);
+  if (sheet.getLastRow() < 1 || lastCol < 1) throw appError_('EMPTY_TAB', MSG.EMPTY_TAB(sheet.getName()));
 
   var headers = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
   var index = Object.create(null);
@@ -314,24 +296,67 @@ function getContext_(sheet, fields) {
   var col = {};
   Object.keys(fields).forEach(function (key) {
     var header = fields[key];
-    if (!(header in index)) throw appError_('MISSING_HEADER', MSG.MISSING_HEADER(header));
+    if (!(header in index)) throw appError_('MISSING_HEADER', MSG.MISSING_HEADER(header, sheet.getName()));
     col[key] = index[header];
   });
   return { lastCol: lastCol, col: col };
+}
+
+/**
+ * Returns the tab with this name, creating it (after all existing tabs, so Tracker stays first)
+ * with a bold, frozen header row if it does not exist or is completely empty.
+ */
+function getOrCreateTab_(name, headers) {
+  var ss = getSpreadsheet_();
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name, ss.getNumSheets());
+  if (sheet.getLastRow() === 0 && sheet.getLastColumn() === 0) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
 }
 
 /* =============================================================================
  * 6. CACHE (chunked, because one cache value is limited to ~100 KB)
  * ========================================================================== */
 
-function cacheGet_() {
+/**
+ * Cached read used by the public read functions. `readFn` returns a plain object; fetchedAt is added to it.
+ * Returns { data, cached }.
+ */
+function cachedRead_(key, force, readFn) {
+  if (!force) {
+    var hit = cacheGet_(key);
+    if (hit) return { data: hit, cached: true };
+  }
+
+  // Read and fill the cache under the same lock a write uses. Otherwise a slow read could
+  // put pre-write data into the cache just after a write invalidated it.
+  var lock = LockService.getScriptLock();
+  var locked = lock.tryLock(CONFIG.LOCK_WAIT_MS);
+  try {
+    if (locked && !force) {
+      var again = cacheGet_(key);
+      if (again) return { data: again, cached: true };
+    }
+    var data = readFn();
+    data.fetchedAt = Date.now();
+    if (locked) cachePut_(key, data);   // if the lock was not obtained, still answer but do not cache
+    return { data: data, cached: false };
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function cacheGet_(key) {
   try {
     var cache = CacheService.getScriptCache();
-    var n = parseInt(cache.get(CONFIG.CACHE.KEY + ':n'), 10);
+    var n = parseInt(cache.get(key + ':n'), 10);
     if (!n || n < 1) return null;
 
     var keys = [];
-    for (var i = 0; i < n; i++) keys.push(CONFIG.CACHE.KEY + ':' + i);
+    for (var i = 0; i < n; i++) keys.push(key + ':' + i);
     var parts = cache.getAll(keys);
 
     var json = '';
@@ -347,7 +372,7 @@ function cacheGet_() {
   }
 }
 
-function cachePut_(snapshot) {
+function cachePut_(key, snapshot) {
   try {
     var json = JSON.stringify(snapshot);
     var items = {};
@@ -357,23 +382,23 @@ function cachePut_(snapshot) {
       var end = Math.min(pos + CONFIG.CACHE.CHUNK_CHARS, json.length);
       var last = json.charCodeAt(end - 1);
       if (end < json.length && last >= 0xD800 && last <= 0xDBFF) end--;   // never split an emoji pair
-      items[CONFIG.CACHE.KEY + ':' + n] = json.substring(pos, end);
+      items[key + ':' + n] = json.substring(pos, end);
       n++;
       pos = end;
     }
-    items[CONFIG.CACHE.KEY + ':n'] = String(n);
+    items[key + ':n'] = String(n);
     CacheService.getScriptCache().putAll(items, CONFIG.CACHE.TTL_SEC);
   } catch (err) {
     console.warn('Cache write failed: ' + err);   // caching is an optimisation, never a requirement
   }
 }
 
-function cacheClear_() {
+function cacheClear_(key) {
   try {
     var cache = CacheService.getScriptCache();
-    var n = parseInt(cache.get(CONFIG.CACHE.KEY + ':n'), 10) || 0;
-    var keys = [CONFIG.CACHE.KEY + ':n'];
-    for (var i = 0; i < n; i++) keys.push(CONFIG.CACHE.KEY + ':' + i);
+    var n = parseInt(cache.get(key + ':n'), 10) || 0;
+    var keys = [key + ':n'];
+    for (var i = 0; i < n; i++) keys.push(key + ':' + i);
     cache.removeAll(keys);
   } catch (err) {
     console.warn('Cache clear failed: ' + err);
