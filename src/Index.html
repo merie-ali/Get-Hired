@@ -194,6 +194,21 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
 .score { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .notes-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
 .ext:empty { display: none; }
+.muted { color: var(--muted); font-size: .9rem; }
+
+/* V2: files */
+.files h3 { margin: 0 0 6px; font-size: .95rem; }
+.file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.file-link { flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+a.file-link { color: var(--primary); }
+.attach {
+  display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 12px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2);
+}
+.attach .full { grid-column: 1 / -1; }
+.attach .btn { width: 100%; }
+@media (min-width: 560px) { .attach { grid-template-columns: 150px 1fr; } }
+@media (max-width: 559px) { .file-link { flex-basis: 100%; order: 3; } }   /* phone: type + date on the first line, the name below */
 
 @media (min-width: 560px) {
   .field { grid-template-columns: 150px 1fr; gap: 12px; }
@@ -346,12 +361,13 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
   };
 
   /* ---------------------------------------------------------------------------
-   * Extension points. V2 / V3 register here instead of editing the core below.
-   *   V2 (files):  Hooks.cardActions.push(function (job, row) { ... });
-   *                Hooks.detailSections.push(function (job, body) { ... });
-   *   V3 (chat):   add Api.chatSend / Api.chatHistory and a panel that reuses h() and toast().
+   * Extension points. V2 (Files, further below) and V3 (chat) register here instead of editing the core.
+   *   cardActions:    function (job, row)  - add buttons to a job card
+   *   detailSections: function (job, body) - add a section to the detail view
+   *   onLoad:         function (force)     - load extra data whenever the job list is loaded or refreshed
+   *   V3 (chat): add Api.chatHistory / Api.chatSend and a panel that reuses h(), toast() and Hooks.
    * ------------------------------------------------------------------------ */
-  var Hooks = { cardActions: [], detailSections: [] };
+  var Hooks = { cardActions: [], detailSections: [], onLoad: [] };
 
   /* ---------------------------------------------------------------------------
    * Server API: the only place that talks to Code.gs. Always resolves { ok, ... }.
@@ -374,7 +390,10 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
       });
     },
     getJobs: function (force) { return this.call('getJobs', [force === true]); },
-    setDecision: function (id, decision) { return this.call('setDecision', [id, decision]); }
+    setDecision: function (id, decision) { return this.call('setDecision', [id, decision]); },
+    // V2
+    getFiles: function (force) { return this.call('getFiles', [force === true]); },
+    linkFile: function (jobId, type, fileRef) { return this.call('linkFile', [jobId, type, fileRef]); }
   };
 
   /* ---------------------------------------------------------------------------
@@ -451,9 +470,9 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
       return null;
     }
   }
-  function linkEl(url, text, cls) {
+  function linkEl(url, text, cls, auto) {
     return h('a', {
-      cls: cls, text: text,
+      cls: cls, text: text, auto: auto,
       attrs: { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }
     });
   }
@@ -947,6 +966,12 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
     if (state.saving.size) { toast(T.wait); return Promise.resolve(); }
     state.loading = true;
     setLoadingUI();
+    // Extra data (e.g. Files) loads in parallel with the jobs. A hook may return a promise that resolves
+    // to an error message (or null); on Refresh that message replaces the plain "refreshed" toast.
+    var extras = Hooks.onLoad.map(function (fn) {
+      try { return Promise.resolve(fn(force === true)).catch(function () { return null; }); }
+      catch (e) { if (window.console) console.error(e); return Promise.resolve(null); }
+    });
 
     return Api.getJobs(force).then(function (res) {
       state.loading = false;
@@ -960,7 +985,12 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
         if (state.openId !== null && !state.byId.has(state.openId)) { closeDetail(); toast(T.jobGone, 'error'); }
         renderAll();
         updateMeta();
-        if (force) toast(T.refreshed);
+        if (force) {
+          Promise.all(extras).then(function (msgs) {
+            var bad = msgs.filter(function (m) { return typeof m === 'string' && m; });
+            if (bad.length) toast(bad[0], 'error'); else toast(T.refreshed);
+          });
+        }
       } else if (!state.loaded) {
         clear(els.list);
         showState('error', T.loadFailed, res.error || T.network, T.retry, function () { loadJobs(false); });
@@ -976,6 +1006,190 @@ dialog::backdrop { background: rgba(5, 8, 12, .55); }
       setLoadingUI();
     });
   }
+
+  /* ===========================================================================
+   * V2 - CV / Cover Letter files (Drive folder + "Files" tab)
+   * Plugs in through Hooks only; nothing in the core above depends on this module.
+   * Files are chosen from the Drive folder (or pasted as a link) and linked to a job by ID.
+   * ======================================================================== */
+  var FILE_TYPES = ['CV', 'Cover Letter'];
+  var TF = {
+    title: 'الملفات',
+    loading: 'جارٍ تحميل الملفات…',
+    none: 'لا توجد ملفات مرتبطة بهذه الوظيفة.',
+    outside: 'خارج المجلد',
+    pick: '— اختر ملفاً من المجلد —',
+    emptyFolder: 'لا توجد ملفات في المجلد بعد',
+    paste: 'أو الصق رابط Drive / معرّف الملف',
+    link: 'ربط الملف بالوظيفة',
+    openFolder: 'فتح المجلد في Drive',
+    hint: 'أضف الملف إلى المجلد في Drive ثم اضغط «تحديث» ليظهر في القائمة.',
+    needFile: 'اختر ملفاً من القائمة أو الصق رابطه أولاً.',
+    linked: 'تم ربط الملف بالوظيفة'
+  };
+
+  /** https URL on google.com or one of its subdomains (Drive / Docs), else null. */
+  function googleHttpsUrl(raw) {
+    var u = safeHttpsUrl(raw);
+    return u && /(^|\.)google\.com$/i.test(new URL(u).hostname) ? u : null;
+  }
+
+  var Files = {
+    loaded: false,
+    loading: false,
+    linking: false,
+    error: '',
+    byJob: new Map(),          // jobId -> links in Sheet order (the last one is the newest)
+    folderFiles: [],
+    folderUrl: '',
+
+    add: function (link) {
+      var list = Files.byJob.get(link.jobId) || [];
+      list.push(link);
+      Files.byJob.set(link.jobId, list);
+    },
+    forJob: function (id) { return Files.byJob.get(id) || []; },
+    latest: function (id, type) {
+      var l = Files.forJob(id).filter(function (x) { return x.type === type; });
+      return l.length ? l[l.length - 1] : null;
+    },
+    /** Google-hosted https URL from the server, else a Drive URL built from a validated file ID. */
+    url: function (l) {
+      var u = googleHttpsUrl(l.url);
+      if (u) return u;
+      return /^[A-Za-z0-9_-]{10,100}$/.test(l.fileId) ? 'https://drive.google.com/open?id=' + encodeURIComponent(l.fileId) : null;
+    },
+
+    /** Resolves to null on success, or to an Arabic error message. It never rejects and never toasts by itself:
+     *  the caller decides, so a Refresh reports ONE message (the files error must not be hidden by "list refreshed"). */
+    load: function (force) {
+      if (Files.loading) return Promise.resolve(null);
+      Files.loading = true;
+      return Api.getFiles(force).then(function (res) {
+        Files.loading = false;
+        var failure = null;
+        if (res.ok && Array.isArray(res.links)) {
+          Files.byJob = new Map();
+          res.links.forEach(function (l) { Files.add(l); });
+          Files.folderFiles = (res.folder && Array.isArray(res.folder.files)) ? res.folder.files : [];
+          Files.folderUrl = (res.folder && typeof res.folder.url === 'string') ? res.folder.url : '';
+          Files.loaded = true;
+          Files.error = '';
+        } else {
+          failure = res.error || T.network;
+          if (!Files.loaded) Files.error = failure;         // shown inside the detail view; the jobs keep working
+        }                                                   // (when files were already loaded, the old ones stay on screen)
+        if (state.loaded) { renderList(); refreshDetail(); }
+        return failure;
+      }).catch(function (e) {
+        Files.loading = false;
+        if (window.console) console.error(e);
+        if (!Files.loaded) Files.error = T.badResponse;
+        return T.badResponse;
+      });
+    }
+  };
+
+  function attachFile(job, type, selectedId, pasted, btn) {
+    if (Files.linking) { toast(T.wait); return Promise.resolve(); }
+    var ref = (pasted || '').trim() || selectedId;       // a pasted link wins over the dropdown
+    if (!ref) { toast(TF.needFile, 'error'); return Promise.resolve(); }
+
+    Files.linking = true;
+    btn.disabled = true;
+    return Api.linkFile(job.id, type, ref).then(function (res) {
+      Files.linking = false;
+      if (res.ok && res.link) {
+        Files.add(res.link);
+        toast(TF.linked + ' ' + job.id);
+        renderList();
+        refreshDetail();
+      } else {
+        btn.disabled = false;
+        toast(res.error || T.network, 'error');
+      }
+    }).catch(function (e) {
+      Files.linking = false;
+      btn.disabled = false;
+      if (window.console) console.error(e);
+      toast(T.badResponse, 'error');
+    });
+  }
+
+  function buildAttachForm(job) {
+    var typeSel = h('select', { cls: 'field-input', attrs: { 'aria-label': 'Type' } },
+      FILE_TYPES.map(function (t) { return h('option', { text: t, attrs: { value: t } }); }));
+
+    var fileSel = h('select', { cls: 'field-input', attrs: { 'aria-label': TF.pick } });
+    if (Files.folderFiles.length) {
+      fileSel.appendChild(h('option', { text: TF.pick, attrs: { value: '' } }));
+      Files.folderFiles.forEach(function (f) { fileSel.appendChild(h('option', { text: f.name, attrs: { value: f.id } })); });
+    } else {
+      fileSel.appendChild(h('option', { text: TF.emptyFolder, attrs: { value: '' } }));
+      fileSel.disabled = true;
+    }
+
+    var refInput = h('input', { cls: 'field-input', attrs: { type: 'text', dir: 'ltr', autocomplete: 'off', placeholder: TF.paste, 'aria-label': TF.paste } });
+    var btn = h('button', { cls: 'btn primary', text: TF.link, attrs: { type: 'button' } });
+    btn.addEventListener('click', function () { attachFile(job, typeSel.value, fileSel.value, refInput.value, btn); });
+
+    var form = h('div', { cls: 'attach' }, [
+      typeSel, fileSel,
+      h('div', { cls: 'full' }, [refInput]),
+      h('div', { cls: 'full' }, [btn]),
+      h('div', { cls: 'full muted', text: TF.hint })
+    ]);
+    var folderUrl = googleHttpsUrl(Files.folderUrl);   // only a Google-hosted folder link is shown
+    if (folderUrl) form.appendChild(h('div', { cls: 'full' }, [linkEl(folderUrl, TF.openFolder, 'btn')]));
+    return form;
+  }
+
+  function buildFilesSection(job) {
+    var sec = h('section', { cls: 'files' }, [h('h3', { text: TF.title })]);
+
+    if (!Files.loaded) {
+      if (Files.error) {
+        sec.appendChild(h('div', { cls: 'callout red' }, [h('div', { text: Files.error })]));
+        sec.appendChild(h('button', {
+          cls: 'btn', text: T.retry, attrs: { type: 'button' },
+          on: { click: function () { Files.load(true).then(function (msg) { if (msg) toast(msg, 'error'); }); } }
+        }));
+      } else {
+        sec.appendChild(h('div', { cls: 'muted', text: TF.loading }));
+      }
+      return sec;
+    }
+
+    var linked = Files.forJob(job.id).slice().reverse();     // newest first
+    if (!linked.length) sec.appendChild(h('div', { cls: 'muted', text: TF.none }));
+    linked.forEach(function (l) {
+      var url = Files.url(l);
+      var name = l.name || l.fileId;
+      sec.appendChild(h('div', { cls: 'file-row' }, [
+        h('span', { cls: 'chip score', text: l.type, attrs: { dir: 'ltr' } }),
+        url ? linkEl(url, name, 'file-link', true) : h('span', { cls: 'file-link', text: name, auto: true }),
+        l.inFolder === false ? h('span', { cls: 'chip', text: TF.outside }) : null,
+        l.date ? h('span', { cls: 'chip', text: l.date, attrs: { dir: 'ltr' } }) : null
+      ]));
+    });
+    sec.appendChild(buildAttachForm(job));
+    return sec;
+  }
+
+  Hooks.onLoad.push(function (force) { return Files.load(force); });
+
+  Hooks.cardActions.push(function (job, row) {              // "CV" / "Cover Letter" buttons: newest file of each type
+    FILE_TYPES.forEach(function (type) {
+      var f = Files.latest(job.id, type);
+      var url = f && Files.url(f);
+      if (!url) return;
+      var a = linkEl(url, type, 'btn');
+      a.setAttribute('title', f.name || type);
+      row.appendChild(a);
+    });
+  });
+
+  Hooks.detailSections.push(function (job, container) { container.appendChild(buildFilesSection(job)); });
 
   /* ---------------------------------------------------------------------------
    * Wiring
