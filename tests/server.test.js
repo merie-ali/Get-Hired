@@ -144,11 +144,12 @@ function setup(opts) {
   const iter = (arr) => { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; };
   const mkFolder = (id) => ({
     getId: () => id, getUrl: () => 'https://drive.google.com/drive/folders/' + id,
-    getFiles: () => iter(driveFiles.filter((f) => !f.trashed && f.parents.includes(id)).map(mkFile))
+    // Worst case on purpose: trashed children and shortcuts are returned too; Code.gs must filter them.
+    getFiles: () => iter(driveFiles.filter((f) => f.parents.includes(id)).map(mkFile))
   });
   const mkFile = (f) => ({
     getId: () => f.id, getName: () => f.name, getUrl: () => 'https://drive.google.com/file/d/' + f.id + '/view?usp=drivesdk',
-    getMimeType: () => 'application/pdf', getLastUpdated: () => new Date(f.updated), isTrashed: () => !!f.trashed,
+    getMimeType: () => f.mime || 'application/pdf', getLastUpdated: () => new Date(f.updated), isTrashed: () => !!f.trashed,
     getParents: () => iter(f.parents.map(mkFolder))
   });
   const DriveApp = {
@@ -182,7 +183,7 @@ function test(name, fn) {
 const arabic = (s) => /[؀-ۿ]/.test(s);
 
 /* ======================================================================== V1 */
-console.log('Code.gs — V1');
+console.log('Code.gs — V1 (regression)');
 
 test('doGet serves Index with title and viewport', () => {
   const t = setup(); t.ctx.doGet();
@@ -352,15 +353,203 @@ test('script not bound to a spreadsheet -> clear Arabic error', () => {
   const r = setup({ noSpreadsheet: true }).call('getJobs'); assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'NO_SS');
 });
 
+test('getJobs keeps working when Drive is down (V2 is independent of V1)', () => {
+  const t = setup({ driveDown: true }); assert.strictEqual(t.call('getJobs').ok, true);
+  assert.strictEqual(t.call('setDecision', 'J001', 'Go').ok, true);
+});
+
 test('Guide tab is never touched', () => {
   const t = setup(); t.call('getJobs'); t.call('setDecision', 'J001', 'Go'); t.call('setDecision', 'J001', '');
+  t.call('getFiles'); t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002');
   assert.strictEqual(t.log.guideTouched, 0);
 });
 
-test('only doGet / getJobs / setDecision are public; helpers end with "_"', () => {
+/* ======================================================================== V2 */
+console.log('\nCode.gs — V2 (Files)');
+
+test('only doGet / getJobs / setDecision / getFiles / linkFile are public; helpers end with "_"', () => {
   const t = setup();
   const pub = Object.keys(t.ctx).filter((k) => typeof t.ctx[k] === 'function' && !k.endsWith('_')).sort();
-  assert.deepStrictEqual(pub, ['doGet', 'getJobs', 'setDecision']);
+  assert.deepStrictEqual(pub, ['doGet', 'getFiles', 'getJobs', 'linkFile', 'setDecision']);
+});
+
+test('getFiles with no Files tab: no links, folder listing newest-first without trashed files, and NO tab is created', () => {
+  const t = setup(); const r = t.call('getFiles');
+  assert.strictEqual(r.ok, true); assert.deepStrictEqual(r.links, []);
+  assert.deepStrictEqual(r.folder.files.map((f) => f.id), ['FILE_CV_NEW_0002', 'FILE_CL_00000003', 'FILE_CV_OLD_0001']);
+  assert.strictEqual(r.folder.url, 'https://drive.google.com/drive/folders/' + FOLDER);
+  assert(r.folder.files.every((f) => f.url.startsWith('https://drive.google.com/') && f.name));
+  assert.strictEqual(t.log.inserted.length, 0); assert.strictEqual(t.log.filesOps.length, 0);
+});
+
+test('linkFile: creates the Files tab (last, with bold frozen headers) and appends exactly one row; Tracker and Drive untouched', () => {
+  const t = setup(); const before = t.trackerData();
+  const r = t.call('linkFile', 'J005', 'CV', 'FILE_CV_NEW_0002');
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.deepStrictEqual(t.log.inserted, [{ name: 'Files', idx: 2 }]);           // after Tracker and Guide
+  const ops = t.log.filesOps;
+  assert.strictEqual(JSON.stringify(ops[0].values), JSON.stringify([FILES_HEADERS]));
+  assert(ops.some((o) => o.op === 'setFontWeight' && o.weight === 'bold') && ops.some((o) => o.op === 'setFrozenRows' && o.n === 1));
+  const rowOp = ops.find((o) => o.op === 'setValues' && o.row === 2);
+  assert.strictEqual(rowOp.values.length, 1);
+  assert.strictEqual(JSON.stringify(rowOp.values[0].slice(0, 3)), JSON.stringify(['J005', 'CV', 'FILE_CV_NEW_0002']));
+  assert(isDate(rowOp.values[0][3]));
+  assert(ops.some((o) => o.op === 'setNumberFormat' && o.row === 2 && o.col === 4 && o.format === 'yyyy-mm-dd'));
+  assert.deepStrictEqual(r.link, { jobId: 'J005', type: 'CV', fileId: 'FILE_CV_NEW_0002', date: r.link.date, name: 'CV 2026 (Backend).pdf', url: r.link.url, inFolder: true });
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(r.link.date));
+  assert.strictEqual(t.log.writes.length, 0);                                      // no Tracker cell written
+  assert.strictEqual(t.trackerData(), before);
+});
+
+test('after linking, getFiles returns the link with the file name; cache is invalidated by the write', () => {
+  const t = setup(); t.call('getFiles'); assert.strictEqual(t.call('getFiles').cached, true);
+  t.call('linkFile', 'J005', 'CV', 'FILE_CV_NEW_0002');
+  const r = t.call('getFiles'); assert.strictEqual(r.cached, false);
+  assert.strictEqual(r.links.length, 1);
+  assert.deepStrictEqual({ ...r.links[0], url: '' }, { jobId: 'J005', type: 'CV', fileId: 'FILE_CV_NEW_0002', date: r.links[0].date, name: 'CV 2026 (Backend).pdf', url: '', inFolder: true });
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(r.links[0].date));
+  assert.strictEqual(t.call('getFiles').cached, true);
+});
+
+test('a link to a file that later left the folder is still listed (no name, inFolder=false)', () => {
+  const t = setup({ filesRows: [['J001', 'CV', 'FILE_GONE_000001', '2026-11-20']] });
+  const r = t.call('getFiles'); assert.strictEqual(r.links[0].inFolder, false); assert.strictEqual(r.links[0].name, ''); assert.strictEqual(r.links[0].url, '');
+});
+
+test('linkFile accepts a bare ID and Drive / Docs link shapes', () => {
+  const t = setup();
+  const refs = [
+    'FILE_CV_NEW_0002',
+    ' https://drive.google.com/file/d/FILE_CV_NEW_0002/view?usp=sharing ',
+    'https://docs.google.com/document/d/FILE_CV_NEW_0002/edit',
+    'https://drive.google.com/open?id=FILE_CV_NEW_0002&usp=drive_fs',
+    'https://drive.google.com/uc?export=download&id=FILE_CV_NEW_0002'
+  ];
+  refs.forEach((ref, i) => {
+    const r = t.call('linkFile', 'J00' + (i + 1), 'CV', ref);
+    assert.strictEqual(r.ok, true, ref + ' -> ' + JSON.stringify(r)); assert.strictEqual(r.link.fileId, 'FILE_CV_NEW_0002');
+  });
+});
+
+test('bad file references are rejected: nothing written, no tab created', () => {
+  const t = setup();
+  ['javascript:alert(1)', 'http://drive.google.com/file/d/FILE_CV_NEW_0002/view', 'https://evil.example/file/d/FILE_CV_NEW_0002/view',
+    'https://drive.google.com.evil.example/file/d/FILE_CV_NEW_0002/view', 'https://drive.google.com/drive/folders/FILE_CV_NEW_0002',
+    '', '   ', 'short', 'x'.repeat(150), 'FILE_CV_NEW_0002; DROP', 123, null, undefined, {}].forEach((ref) => {
+    const r = t.call('linkFile', 'J001', 'CV', ref);
+    assert.strictEqual(r.ok, false, 'accepted ' + JSON.stringify(ref)); assert.strictEqual(r.code, 'BAD_FILE_REF'); assert(arabic(r.error));
+  });
+  assert.strictEqual(t.log.inserted.length, 0); assert.strictEqual(t.log.filesOps.length, 0);
+});
+
+test('only "CV" and "Cover Letter" are accepted as Type', () => {
+  const t = setup();
+  ['cv', 'CV ', 'Resume', 'Cover letter', '', 5, null, {}].forEach((v) => {
+    const r = t.call('linkFile', 'J001', v, 'FILE_CV_NEW_0002'); assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'BAD_TYPE');
+  });
+  assert.strictEqual(t.call('linkFile', 'J001', 'Cover Letter', 'FILE_CL_00000003').ok, true);
+  assert.strictEqual(t.log.filesOps.filter((o) => o.op === 'setValues' && o.row === 2).length, 1);
+});
+
+test('bad job IDs: invalid -> BAD_ID, unknown -> NOT_FOUND; neither creates the tab', () => {
+  const t = setup();
+  assert.strictEqual(t.call('linkFile', '../x', 'CV', 'FILE_CV_NEW_0002').code, 'BAD_ID');
+  const r = t.call('linkFile', 'J999', 'CV', 'FILE_CV_NEW_0002'); assert.strictEqual(r.code, 'NOT_FOUND'); assert(r.error.includes('J999'));
+  assert.strictEqual(t.log.inserted.length, 0);
+});
+
+test('file checks: unknown file, trashed, and outside the folder are rejected before anything is written', () => {
+  const t = setup();
+  const a = t.call('linkFile', 'J001', 'CV', 'FILE_DOES_NOT_EXIST'); assert.strictEqual(a.code, 'NO_FILE');
+  const b = t.call('linkFile', 'J001', 'CV', 'FILE_TRASHED_004'); assert.strictEqual(b.code, 'FILE_TRASHED');
+  const c = t.call('linkFile', 'J001', 'CV', 'FILE_ELSEWHERE_05'); assert.strictEqual(c.code, 'NOT_IN_FOLDER');
+  [a, b, c].forEach((r) => assert(arabic(r.error)));
+  assert.strictEqual(t.log.inserted.length, 0); assert.strictEqual(t.log.filesOps.length, 0);
+});
+
+test('shortcuts: left out of the folder listing, and linking one is refused (SHORTCUT) before anything is written', () => {
+  const shortcut = { id: 'FILE_SHORTCUT_006', name: 'Shortcut to CV.pdf', updated: 9000, parents: [FOLDER], mime: 'application/vnd.google-apps.shortcut' };
+  const t = setup({ driveFiles: defaultDriveFiles().concat([shortcut]) });
+  assert.deepStrictEqual(t.call('getFiles').folder.files.map((f) => f.id), ['FILE_CV_NEW_0002', 'FILE_CL_00000003', 'FILE_CV_OLD_0001']);
+  const r = t.call('linkFile', 'J001', 'CV', 'FILE_SHORTCUT_006');
+  assert.strictEqual(r.ok, false); assert.strictEqual(r.code, 'SHORTCUT'); assert(arabic(r.error));
+  assert.strictEqual(t.log.inserted.length, 0); assert.strictEqual(t.log.filesOps.length, 0);
+  assert.strictEqual(t.isLockHeld(), false);
+});
+
+test('trashed files and shortcuts do not use up the 300-file picker cap', () => {
+  const junk = []; for (let i = 0; i < 50; i++) junk.push({ id: 'FILE_JUNK_' + String(i).padStart(6, '0'), name: 'j' + i, updated: 10000 + i, parents: [FOLDER], trashed: i % 2 === 0, mime: i % 2 ? 'application/vnd.google-apps.shortcut' : undefined });
+  const many = []; for (let i = 0; i < 400; i++) many.push({ id: 'FILE_BULK_' + String(i).padStart(6, '0'), name: 'f' + i, updated: i, parents: [FOLDER] });
+  const files = setup({ driveFiles: junk.concat(many) }).call('getFiles').folder.files;
+  assert.strictEqual(files.length, 300);
+  assert(files.every((f) => f.id.startsWith('FILE_BULK_')));
+});
+
+test('duplicates: same job+type+file refused; same file with another type or job is fine', () => {
+  const t = setup();
+  assert.strictEqual(t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002').ok, true);
+  const dup = t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002'); assert.strictEqual(dup.code, 'DUP_LINK');
+  assert.strictEqual(t.call('linkFile', 'J001', 'Cover Letter', 'FILE_CV_NEW_0002').ok, true);
+  assert.strictEqual(t.call('linkFile', 'J002', 'CV', 'FILE_CV_NEW_0002').ok, true);
+  assert.strictEqual(t.call('linkFile', 'J001', 'CV', 'FILE_CV_OLD_0001').ok, true);          // several CV versions per job
+  const r = t.call('getFiles', true); assert.strictEqual(r.links.length, 4);
+  assert.deepStrictEqual(r.links.filter((l) => l.jobId === 'J001').map((l) => l.fileId), ['FILE_CV_NEW_0002', 'FILE_CV_NEW_0002', 'FILE_CV_OLD_0001']);
+});
+
+test('links are keyed by JobID, so sorting the Tracker never moves them', () => {
+  const t = setup(); t.call('linkFile', 'J007', 'CV', 'FILE_CV_NEW_0002');
+  t.sheetApi.sortById(true);
+  assert.strictEqual(t.call('getFiles', true).links[0].jobId, 'J007');
+  assert.strictEqual(t.call('linkFile', 'J008', 'CV', 'FILE_CV_OLD_0001').ok, true);
+});
+
+test('existing Files tab: extra columns and a different column order are respected', () => {
+  const t = setup({ filesHeaders: ['Date', 'Note', 'FileId', 'JobID', 'Type'], filesRows: [['2026-11-01', 'mine', 'FILE_CL_00000003', 'J002', 'Cover Letter']] });
+  const r0 = t.call('getFiles'); assert.deepStrictEqual(r0.links.map((l) => [l.jobId, l.type, l.fileId]), [['J002', 'Cover Letter', 'FILE_CL_00000003']]);
+  const r = t.call('linkFile', 'J003', 'CV', 'FILE_CV_NEW_0002'); assert.strictEqual(r.ok, true);
+  const row = t.log.filesOps.find((o) => o.op === 'setValues' && o.row === 3).values[0];
+  assert.strictEqual(row.length, 5);
+  assert.strictEqual(JSON.stringify([row[1], row[2], row[3], row[4]]), JSON.stringify(['', 'FILE_CV_NEW_0002', 'J003', 'CV']));
+  assert(isDate(row[0]));
+  assert.strictEqual(t.log.inserted.length, 0);
+});
+
+test('Files tab with a missing header -> Arabic error naming the column and the Files tab; nothing written', () => {
+  const t = setup({ filesHeaders: ['JobID', 'Type', 'File', 'Date'], filesRows: [['J001', 'CV', 'x', '2026-11-01']] });
+  const g = t.call('getFiles'); assert.strictEqual(g.ok, false); assert.strictEqual(g.code, 'MISSING_HEADER'); assert(g.error.includes('FileId') && g.error.includes('Files'));
+  const l = t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002'); assert.strictEqual(l.code, 'MISSING_HEADER');
+  assert.strictEqual(t.log.filesOps.length, 0);
+});
+
+test('lock busy: linkFile -> BUSY, nothing written; the lock is released after every outcome', () => {
+  const b = setup({ lockBusy: true }); const r = b.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002');
+  assert.strictEqual(r.code, 'BUSY'); assert.strictEqual(b.log.inserted.length, 0);
+  const t = setup(); t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002'); assert.strictEqual(t.isLockHeld(), false);
+  t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002'); assert.strictEqual(t.isLockHeld(), false);
+  t.call('linkFile', 'J001', 'CV', 'FILE_DOES_NOT_EXIST'); assert.strictEqual(t.isLockHeld(), false);
+});
+
+test('folder: Script Property overrides the default; an unreachable folder -> Arabic NO_FOLDER', () => {
+  const t = setup({ props: { FILES_FOLDER_ID: 'OTHER_FOLDER' }, driveFiles: defaultDriveFiles().concat([{ id: 'FILE_IN_OTHER_001', name: 'x.pdf', updated: 1, parents: ['OTHER_FOLDER'] }]) });
+  assert.deepStrictEqual(t.call('getFiles').folder.files.map((f) => f.id), ['FILE_IN_OTHER_001']);
+  assert.strictEqual(t.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002').code, 'NOT_IN_FOLDER');   // default folder no longer applies
+  const bad = setup({ props: { FILES_FOLDER_ID: 'NOPE' } });
+  const g = bad.call('getFiles'); assert.strictEqual(g.code, 'NO_FOLDER'); assert(arabic(g.error));
+  assert.strictEqual(bad.call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002').code, 'NO_FOLDER');
+  assert.strictEqual(bad.log.inserted.length, 0);
+  const unset = setup({ props: { FILES_FOLDER_ID: null } });              // property missing and the code default is empty
+  assert.strictEqual(unset.call('getFiles').code, 'NO_FOLDER');
+  assert.strictEqual(unset.call('getJobs').ok, true);                     // V1 features keep working
+});
+
+test('the folder picker is capped at 300 files', () => {
+  const many = []; for (let i = 0; i < 400; i++) many.push({ id: 'FILE_BULK_' + String(i).padStart(6, '0'), name: 'f' + i, updated: i, parents: [FOLDER] });
+  assert.strictEqual(setup({ driveFiles: many }).call('getFiles').folder.files.length, 300);
+});
+
+test('a Drive error is reported as a generic Arabic message without leaking details', () => {
+  const r = setup({ driveDown: true }).call('linkFile', 'J001', 'CV', 'FILE_CV_NEW_0002');
+  assert.strictEqual(r.ok, false); assert(arabic(r.error));
 });
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

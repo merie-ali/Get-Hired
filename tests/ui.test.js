@@ -35,12 +35,55 @@ JOBS.push({ ...job(28), title: '<img src=x onerror="window.__xss=1">', company: 
 JOBS.push({ ...job(29), title: 'Insecure link job', jobUrl: 'http://insecure.example/x', applyUrl: 'https://ok.example/apply?a=1&b=2', match: 98 });
 JOBS.push({ ...job(30), title: 'No links job', jobUrl: '', applyUrl: '', match: 97 });
 
-const STUB = (jobs) => `
+// V2 fixtures: Drive folder contents and existing rows of the "Files" tab.
+const F1 = '1AbCdEfGhIjKlMnOpQrStUv', F2 = '2BcDeFgHiJkLmNoPqRsTuVw', F3 = '3CdEfGhIjKlMnOpQrStUvWx', F4 = '4DeFgHiJkLmNoPqRsTuVwXy';
+const drive = (id) => 'https://drive.google.com/file/d/' + id + '/view';
+const FOLDER_URL = 'https://drive.google.com/drive/folders/FAKE_FOLDER_ID_0001';
+const FILES = {
+  folderFiles: [
+    { id: F1, name: 'CV - Jane Doe.pdf', url: drive(F1), mime: 'application/pdf', updated: '2026-11-20' },
+    { id: F2, name: 'Cover Letter - Company 1.docx', url: drive(F2), mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', updated: '2026-11-21' },
+    { id: F3, name: 'السيرة الذاتية - نسخة عربية.pdf', url: drive(F3), mime: 'application/pdf', updated: '2026-11-22' },
+    { id: F4, name: '<img src=x onerror="window.__xss=7">.pdf', url: drive(F4), mime: 'application/pdf', updated: '2026-11-23' }
+  ],
+  links: [
+    { jobId: 'J001', type: 'CV', fileId: F1, date: '2026-11-20', name: 'CV - Jane Doe.pdf', url: drive(F1), inFolder: true },
+    { jobId: 'J001', type: 'Cover Letter', fileId: F2, date: '2026-11-21', name: 'Cover Letter - Company 1.docx', url: drive(F2), inFolder: true },
+    { jobId: 'J001', type: 'CV', fileId: F3, date: '2026-11-22', name: 'السيرة الذاتية - نسخة عربية.pdf', url: drive(F3), inFolder: true },
+    { jobId: 'J002', type: 'CV', fileId: F1, date: '2026-11-20', name: 'CV - Jane Doe.pdf', url: drive(F1), inFolder: true },
+    { jobId: 'J003', type: 'Cover Letter', fileId: F4, date: '2026-11-23', name: '<img src=x onerror="window.__xss=7">.pdf', url: 'javascript:window.__xss=8', inFolder: true },
+    { jobId: 'J005', type: 'CV', fileId: 'GoneFileId0123456789', date: '2026-10-01', name: '', url: '', inFolder: false }
+  ]
+};
+
+const STUB = (jobs, files) => `
 (function(){
   window.__calls = [];
-  window.__srv = { jobs: ${JSON.stringify(jobs)}, delay: 120, failNext: false, failIds: {} };
+  window.__srv = { jobs: ${JSON.stringify(jobs)}, files: ${JSON.stringify(files)}, folderUrl: ${JSON.stringify(FOLDER_URL)}, delay: 120, failNext: false, failIds: {}, failFilesNext: false, failLink: false };
+  function fileIdOf(ref) {
+    ref = String(ref || '').trim();
+    var m = ref.match(/\\/d\\/([A-Za-z0-9_-]{10,})/) || ref.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+    if (m) return m[1];
+    return /^[A-Za-z0-9_-]{10,}$/.test(ref) ? ref : '';
+  }
   function handle(name, args) {
     var s = window.__srv;
+    if (name === 'getFiles') {
+      if (s.failFilesNext) { s.failFilesNext = false; return { ok: false, code: 'X', error: 'تعذّر قراءة مجلد الملفات (اختبار).' }; }
+      return { ok: true, links: JSON.parse(JSON.stringify(s.files.links)), folder: { url: s.folderUrl, files: JSON.parse(JSON.stringify(s.files.folderFiles)) }, fetchedAt: Date.now(), cached: args[0] !== true };
+    }
+    if (name === 'linkFile') {
+      var jobId = args[0], type = args[1], id = fileIdOf(args[2]);
+      if (s.failLink) return { ok: false, code: 'BUSY', error: 'الملف مشغول (اختبار).' };
+      if (type !== 'CV' && type !== 'Cover Letter') return { ok: false, error: 'نوع غير صالح' };
+      if (!s.jobs.some(function (x) { return x.id === jobId; })) return { ok: false, error: 'الوظيفة غير موجودة' };
+      var f = s.files.folderFiles.find(function (x) { return x.id === id; });
+      if (!f) return { ok: false, code: 'NOT_IN_FOLDER', error: 'هذا الملف ليس داخل المجلد المحدد (اختبار).' };
+      if (s.files.links.some(function (l) { return l.jobId === jobId && l.type === type && l.fileId === id; })) return { ok: false, error: 'هذا الملف مرتبط بهذه الوظيفة مسبقاً.' };
+      var link = { jobId: jobId, type: type, fileId: id, date: '2026-11-25', name: f.name, url: f.url, inFolder: true };
+      s.files.links.push(link);
+      return { ok: true, link: JSON.parse(JSON.stringify(link)) };
+    }
     if (name === 'getJobs') {
       if (s.failNext) { s.failNext = false; return { ok: false, code: 'X', error: 'تعذّر قراءة الملف (اختبار).' }; }
       return { ok: true, jobs: JSON.parse(JSON.stringify(s.jobs)), fetchedAt: Date.now(), cached: args[0] !== true };
@@ -89,7 +132,7 @@ async function test(name, fn) {
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.addInitScript(STUB(opts.jobs || JOBS));
+    await page.addInitScript(STUB(opts.jobs || JOBS, opts.files || FILES));
     if (opts.preScript) await page.addInitScript(opts.preScript);
     await page.goto(require('url').pathToFileURL(PAGE).href);   // works with relative paths and on Windows
     if (!opts.noWait) await page.waitForSelector('.card', { timeout: 5000 });
@@ -377,6 +420,206 @@ async function test(name, fn) {
     await ctx.close();
   });
 
+  // ---------------------------------------------------------------- V2: files
+  console.log('V2 files');
+  const linkCalls = (page) => page.evaluate(() => window.__calls.filter((c) => c[0] === 'linkFile'));
+  const openDetailOf = async (page, id) => { await page.click('[data-job-id="' + id + '"] .title-btn'); await page.waitForSelector('dialog[open] .files'); };
+
+  await test('V2: files load once with the jobs (getFiles(false)); cards show CV / Cover Letter buttons only when linked', async () => {
+    const { page, ctx, errors } = await open();
+    await page.waitForFunction(() => document.querySelector('[data-job-id="J001"] a.btn[title]'));
+    assert.deepStrictEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'getFiles')), [['getFiles', false]]);
+    const labels = (id) => page.$$eval('[data-job-id="' + id + '"] .links a', (as) => as.map((a) => a.textContent));
+    assert.deepStrictEqual(await labels('J001'), ['فتح الوظيفة', 'تقديم', 'CV', 'Cover Letter']);
+    assert.deepStrictEqual((await labels('J002')).slice(-1), ['CV']);
+    assert.strictEqual((await labels('J002')).includes('Cover Letter'), false);
+    assert.strictEqual((await labels('J004')).includes('CV'), false);                      // no files linked
+    await ctx.close();
+    assert.deepStrictEqual(errors, []);
+  });
+
+  await test('V2: card buttons open the NEWEST file of each type, as safe https links', async () => {
+    const { page, ctx } = await open();
+    await page.waitForSelector('[data-job-id="J001"] a.btn[title]');
+    const hrefs = await page.$$eval('[data-job-id="J001"] a.btn[title]', (as) => as.map((a) => [a.textContent, a.href, a.title, a.rel, a.target]));
+    assert.deepStrictEqual(hrefs, [
+      ['CV', drive(F3), 'السيرة الذاتية - نسخة عربية.pdf', 'noopener noreferrer', '_blank'],      // J001 has two CVs: F1 then F3 (newer)
+      ['Cover Letter', drive(F2), 'Cover Letter - Company 1.docx', 'noopener noreferrer', '_blank']
+    ]);
+    await ctx.close();
+  });
+
+  await test('V2: detail shows linked files newest first, type chip, date, "outside folder" mark, and the attach form', async () => {
+    const { page, ctx, errors } = await open({ viewport: { width: 1280, height: 900 } });
+    await openDetailOf(page, 'J001');
+    const rows = await page.$$eval('dialog .file-row', (r) => r.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
+    assert.strictEqual(rows.length, 3);
+    assert(rows[0].startsWith('CV') && rows[0].includes('السيرة الذاتية') && rows[0].includes('2026-11-22'), rows[0]);
+    assert(rows[2].includes('CV - Jane Doe.pdf'), rows[2]);
+    assert.deepStrictEqual(await page.$$eval('dialog .attach select:first-of-type option', (o) => o.map((x) => x.value)), ['CV', 'Cover Letter']);
+    const opts = await page.$$eval('dialog .attach select:nth-of-type(2) option', (o) => o.map((x) => x.value));
+    assert.deepStrictEqual(opts, ['', F1, F2, F3, F4]);
+    assert.strictEqual(await page.$eval('dialog .attach input', (e) => e.dir), 'ltr');
+    assert.strictEqual(await page.$eval('dialog .attach a.btn', (e) => e.href), FOLDER_URL);
+
+    await page.keyboard.press('Escape'); await page.waitForSelector('dialog:not([open])', { state: 'attached' });
+    await page.click('[data-job-id="J004"] .title-btn'); await page.waitForSelector('dialog[open] .files');
+    assert((await page.textContent('dialog .files')).includes('لا توجد ملفات مرتبطة'));
+    await page.keyboard.press('Escape'); await page.waitForSelector('dialog:not([open])', { state: 'attached' });
+    await openDetailOf(page, 'J005');
+    assert((await page.textContent('dialog .files .file-row')).includes('خارج المجلد'));
+    assert.deepStrictEqual(errors, []); await ctx.close();
+  });
+
+  await test('V2: linking from the folder list calls linkFile(jobId, type, fileId) only; dialog and card update; Tracker calls untouched', async () => {
+    const { page, ctx, errors } = await open({ viewport: { width: 1280, height: 900 } });
+    await openDetailOf(page, 'J010');
+    await page.selectOption('dialog .attach select:first-of-type', 'Cover Letter');
+    await page.selectOption('dialog .attach select:nth-of-type(2)', F2);
+    await page.click('dialog .attach button.primary');
+    await page.waitForSelector('dialog .file-row');
+    assert.deepStrictEqual(await linkCalls(page), [['linkFile', 'J010', 'Cover Letter', F2]]);
+    assert((await page.textContent('dialog .file-row')).includes('Cover Letter - Company 1.docx'));
+    assert((await page.textContent('#toast')).includes('J010'));
+    assert.strictEqual(await page.$eval('[data-job-id="J010"] a.btn[title]', (a) => a.textContent), 'Cover Letter');
+    assert.strictEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'setDecision').length), 0);
+    assert.strictEqual(await page.$eval('[data-job-id="J010"]', (e) => e.getAttribute('data-decision')), '');
+    // the form is reset after success
+    assert.strictEqual(await page.$eval('dialog .attach select:nth-of-type(2)', (e) => e.value), '');
+    assert.deepStrictEqual(errors, []); await ctx.close();
+  });
+
+  await test('V2: a pasted link wins over the dropdown and is sent as typed; empty input is rejected without a server call', async () => {
+    const { page, ctx } = await open({ viewport: { width: 1280, height: 900 } });
+    await openDetailOf(page, 'J011');
+    await page.click('dialog .attach button.primary');
+    assert.strictEqual(await page.$eval('#toast', (e) => e.classList.contains('error')), true);
+    assert.deepStrictEqual(await linkCalls(page), []);
+    await page.selectOption('dialog .attach select:nth-of-type(2)', F1);
+    await page.fill('dialog .attach input', 'https://docs.google.com/document/d/' + F3 + '/edit?usp=sharing');
+    await page.click('dialog .attach button.primary');
+    await page.waitForSelector('dialog .file-row');
+    assert.deepStrictEqual(await linkCalls(page), [['linkFile', 'J011', 'CV', 'https://docs.google.com/document/d/' + F3 + '/edit?usp=sharing']]);
+    assert((await page.textContent('dialog .file-row')).includes('السيرة الذاتية'));    // F3, not the dropdown's F1
+    await ctx.close();
+  });
+
+  await test('V2: server refusals (not in folder, duplicate, busy) show the Arabic message and add nothing', async () => {
+    const { page, ctx, errors } = await open({ viewport: { width: 1280, height: 900 } });
+    await openDetailOf(page, 'J012');
+    await page.fill('dialog .attach input', 'ZZZZZZZZZZZZZZZZZZZZ');
+    await page.click('dialog .attach button.primary');
+    await page.waitForFunction(() => document.getElementById('toast').classList.contains('error') && document.getElementById('toast').textContent.includes('ليس داخل المجلد'));
+    assert.strictEqual(await page.$$eval('dialog .file-row', (r) => r.length), 0);
+    assert.strictEqual(await page.$eval('dialog .attach button.primary', (b) => b.disabled), false);       // can retry
+
+    await page.evaluate(() => { window.__srv.failLink = true; });
+    await page.fill('dialog .attach input', F1);
+    await page.click('dialog .attach button.primary');
+    await page.waitForFunction(() => document.getElementById('toast').textContent.includes('الملف مشغول'));
+    assert.strictEqual(await page.$$eval('dialog .file-row', (r) => r.length), 0);
+
+    await page.evaluate(() => { window.__srv.failLink = false; });
+    await page.click('dialog .attach button.primary'); await page.waitForSelector('dialog .file-row');
+    await page.fill('dialog .attach input', F1);                                                            // same job + type + file again
+    await page.click('dialog .attach button.primary');
+    await page.waitForFunction(() => document.getElementById('toast').textContent.includes('مرتبط بهذه الوظيفة مسبقاً'));
+    assert.strictEqual(await page.$$eval('dialog .file-row', (r) => r.length), 1);
+    assert.deepStrictEqual(errors, []); await ctx.close();
+  });
+
+  await test('V2: double-clicking "link" sends one request (button locked while saving)', async () => {
+    const { page, ctx } = await open({ viewport: { width: 1280, height: 900 } });
+    await openDetailOf(page, 'J013');
+    await page.evaluate(() => { window.__srv.delay = 500; });
+    await page.fill('dialog .attach input', F1);
+    await page.dblclick('dialog .attach button.primary');
+    await page.waitForSelector('dialog .file-row');
+    assert.strictEqual((await linkCalls(page)).length, 1);
+    await ctx.close();
+  });
+
+  await test('V2: file names / URLs from Drive or the Sheet never become markup or script; bad URLs fall back to a safe Drive link', async () => {
+    const { page, ctx } = await open();
+    await page.waitForSelector('[data-job-id="J003"] a.btn[title]');
+    assert.strictEqual(await page.evaluate(() => window.__xss), undefined);
+    assert.strictEqual(await page.$('img[src="x"]'), null);
+    // J003: javascript: url from the server is ignored; the safe URL is rebuilt from the validated file ID
+    assert.strictEqual(await page.$eval('[data-job-id="J003"] a.btn[title]', (a) => a.href), 'https://drive.google.com/open?id=' + F4);
+    await openDetailOf(page, 'J003');
+    assert.strictEqual(await page.$eval('dialog .file-row .file-link', (a) => a.textContent), '<img src=x onerror="window.__xss=7">.pdf');
+    assert.strictEqual(await page.$('dialog .files img'), null);
+    const opt = await page.$$eval('dialog .attach select:nth-of-type(2) option', (o) => o.map((x) => x.textContent));
+    assert(opt.includes('<img src=x onerror="window.__xss=7">.pdf'));
+    assert.strictEqual(await page.evaluate(() => window.__xss), undefined);
+    // J005: file no longer in the folder and without a name -> shows the ID, still a safe link
+    await page.keyboard.press('Escape'); await page.waitForSelector('dialog:not([open])', { state: 'attached' });
+    await openDetailOf(page, 'J005');
+    assert.strictEqual(await page.$eval('dialog .file-row a.file-link', (a) => a.textContent), 'GoneFileId0123456789');
+    const bad = await page.$$eval('a', (as) => as.filter((a) => !/^https:\/\//.test(a.getAttribute('href') || '') || a.rel !== 'noopener noreferrer').length);
+    assert.strictEqual(bad, 0);
+    await ctx.close();
+  });
+
+  await test('V2: the "open folder" link is shown only for an https link on a google.com host', async () => {
+    const hostile = ['javascript:window.__xss=9', 'http://drive.google.com/drive/folders/FAKE_FOLDER_ID_0001',
+      'https://drive.google.com.evil.example/drive/folders/FAKE_FOLDER_ID_0001', 'https://evil.example/drive/folders/FAKE_FOLDER_ID_0001'];
+    for (const url of hostile) {
+      const { page, ctx, errors } = await open({ viewport: { width: 1280, height: 900 }, preScript: 'window.__srv.folderUrl = ' + JSON.stringify(url) + ';' });
+      await openDetailOf(page, 'J001');
+      assert.strictEqual(await page.$('dialog .attach a'), null, 'folder link rendered for ' + url);
+      assert.strictEqual(await page.evaluate(() => window.__xss), undefined);
+      assert.deepStrictEqual(errors, []); await ctx.close();
+    }
+    const good = 'https://drive.google.com/drive/u/0/folders/FAKE_FOLDER_ID_0002';
+    const { page, ctx } = await open({ viewport: { width: 1280, height: 900 }, preScript: 'window.__srv.folderUrl = ' + JSON.stringify(good) + ';' });
+    await openDetailOf(page, 'J001');
+    assert.strictEqual(await page.$eval('dialog .attach a.btn', (a) => a.href), good);
+    assert.strictEqual(await page.$eval('dialog .attach a.btn', (a) => a.rel), 'noopener noreferrer');
+    await ctx.close();
+  });
+
+  await test('V2: Files tab/folder failure does not break the jobs; detail shows an error with Retry that recovers', async () => {
+    const { page, ctx, errors } = await open({ preScript: 'window.__srv.failFilesNext = true;' });
+    assert.strictEqual((await cardIds(page)).length, 30);
+    assert.strictEqual(await page.$('[data-job-id="J001"] a.btn[title]'), null);
+    await page.click('[data-job-id="J001"] .title-btn'); await page.waitForSelector('dialog[open] .files');
+    assert((await page.textContent('dialog .files')).includes('تعذّر قراءة مجلد الملفات'));
+    assert.strictEqual(await page.$('dialog .attach'), null);                                             // no form without data
+    await page.click('dialog .files button');
+    await page.waitForSelector('dialog .file-row');
+    assert.strictEqual(await page.$$eval('dialog .file-row', (r) => r.length), 3);
+    assert.strictEqual(await page.$$eval('[data-job-id="J001"] a.btn[title]', (a) => a.length), 2);
+    // decisions still work while Files had failed
+    assert.deepStrictEqual(errors.filter((e) => !/Failed to load resource/.test(e)), []); await ctx.close();
+  });
+
+  await test('V2: Refresh also re-reads files (getFiles(true)); a failed refresh keeps the files already shown', async () => {
+    const { page, ctx } = await open();
+    await page.waitForSelector('[data-job-id="J001"] a.btn[title]');
+    await page.evaluate(() => { window.__srv.files.links.push({ jobId: 'J020', type: 'CV', fileId: 'ReFreshedFile0123456', date: '2026-11-25', name: 'Added in Drive.pdf', url: 'https://drive.google.com/file/d/ReFreshedFile0123456/view', inFolder: true }); });
+    await page.click('#refresh');
+    await page.waitForSelector('[data-job-id="J020"] a.btn[title]');
+    assert.deepStrictEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'getFiles')), [['getFiles', false], ['getFiles', true]]);
+    await page.evaluate(() => { window.__srv.failFilesNext = true; });
+    await page.click('#refresh');
+    await page.waitForFunction(() => document.getElementById('toast').classList.contains('error'));
+    assert.strictEqual(await page.$$eval('[data-job-id="J001"] a.btn[title]', (a) => a.length), 2);
+    assert.strictEqual(await page.$$eval('[data-job-id="J020"] a.btn[title]', (a) => a.length), 1);
+    await ctx.close();
+  });
+
+  await test('V2: mobile layout - no horizontal overflow with files on cards and in the dialog; 44px targets', async () => {
+    const { page, ctx } = await open({ mobile: true });
+    await page.waitForSelector('[data-job-id="J001"] a.btn[title]');
+    assert.strictEqual(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await page.tap('[data-job-id="J001"] .title-btn'); await page.waitForSelector('dialog[open] .files');
+    assert.strictEqual(await page.evaluate(() => { const d = document.getElementById('detailBody'); return d.scrollWidth <= d.clientWidth + 1; }), true);
+    const small = await page.$$eval('dialog .files .btn, dialog .files select, dialog .files input, dialog .files button', (els) => els.filter((e) => e.offsetParent && e.getBoundingClientRect().height < 43).length);
+    assert.strictEqual(small, 0);
+    await ctx.close();
+  });
+
   await test('source has no HTML-string injection APIs', async () => {
     const src = fs.readFileSync(HTML, 'utf8');
     ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write', 'eval(', 'new Function'].forEach((s) => assert(!src.includes(s), 'found ' + s));
@@ -397,6 +640,23 @@ async function test(name, fn) {
     const { page, ctx } = await open({ viewport: { width: 1280, height: 900 }, dark: true });
     await page.click('[data-job-id="J004"] .title-btn'); await page.waitForSelector('dialog[open]');
     await page.screenshot({ path: path.join(OUT, 'desktop-detail-dark.png') }); await ctx.close();
+  }
+
+  { // V2: card with CV / Cover Letter buttons (mobile light) and the Files section (mobile light, desktop dark)
+    const { page, ctx } = await open({ mobile: true });
+    await page.waitForSelector('[data-job-id="J001"] a.btn[title]');
+    await page.$eval('[data-job-id="J001"]', (e) => e.scrollIntoView({ block: 'center' })); await page.waitForTimeout(200);
+    await page.screenshot({ path: path.join(OUT, 'v2-mobile-card.png') });
+    await page.tap('[data-job-id="J001"] .title-btn'); await page.waitForSelector('dialog[open] .files');
+    await page.evaluate(() => { const b = document.getElementById('detailBody'); b.scrollTop = b.scrollHeight; });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(OUT, 'v2-mobile-files.png') }); await ctx.close();
+  }
+  {
+    const { page, ctx } = await open({ viewport: { width: 1280, height: 900 }, dark: true });
+    await page.click('[data-job-id="J003"] .title-btn'); await page.waitForSelector('dialog[open] .files');
+    await page.evaluate(() => { const b = document.getElementById('detailBody'); b.scrollTop = b.scrollHeight; });
+    await page.screenshot({ path: path.join(OUT, 'v2-desktop-dark-files.png') }); await ctx.close();
   }
 
   { // mobile detail scrolled to Notes

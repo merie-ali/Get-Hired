@@ -22,13 +22,12 @@ Environment variables for the UI suite: `CHROME_PATH=/path/to/chrome` if Chrome 
 `NO_SANDBOX=1` only inside containers/CI.
 
 ## Folders
-- `tests/` — the V1 suites. They must pass against the V1 code.
-- `reference/` — **git-ignored, not part of the repo history.** `v2-src/` is a sanitized V2 implementation (Code.gs, Index.html,
-  appsscript.json) and `v2-tests/` the matching suites (43 server + 31 UI tests). Use them to port V2 faithfully. When V2 is
-  ported, replace `tests/*.test.js` with `reference/v2-tests/*.test.js` (they already contain the V1 tests).
+- `tests/` — the V1 + V2 suites (45 server + 32 UI tests). They must pass against `src/`.
+- `reference/` — **git-ignored, not part of the repo history.** A local copy of the sanitized V2 implementation (`v2-src/`)
+  and its original suites (`v2-tests/`, 43 server + 31 UI) that V2 was ported from. Not needed to run the tests.
 - The V2 suites need `CONFIG.FILES.FOLDER_ID` to stay `''`: they set the folder through the Script Property mock.
 
 ## Notes
-- The V1 server suite contains a test asserting that only `doGet`, `getJobs` and `setDecision` are public functions;
-  on V2 code that test is expected to fail (V2 adds `getFiles` and `linkFile`) — use the V2 suite there.
+- The Drive mock in the server suite returns trashed files and shortcuts from `folder.getFiles()` on purpose (worst case);
+  `Code.gs` must leave them out of the picker and refuse to link a shortcut.
 - Screenshots are for visual review (mobile/desktop, light/dark); look at them after any layout change.
