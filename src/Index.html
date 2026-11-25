@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>الوظائف الشاغرة</title>
+<style>
+/* ===== Theme: light by default, dark when the device is dark ===== */
+:root {
+  color-scheme: light dark;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --text: #1b1f24;
+  --muted: #58616d;
+  --border: #dadee4;
+  --primary: #1f5fd1;
+  --primary-contrast: #ffffff;
+  --go: #11703a;     --go-bg: #e2f5ea;
+  --skip: #4f5864;   --skip-bg: #e9ecf0;
+  --red: #9b1c1c;    --red-bg: #fde8e8;    --red-border: #f0b4b4;
+  --yellow: #6b4e00; --yellow-bg: #fff2c0; --yellow-border: #e8cc62;
+  --blue: #1b4bab;   --blue-bg: #e6eeff;   --blue-border: #b5caf3;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 3px 10px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116;
+    --surface: #171b22;
+    --surface-2: #212730;
+    --text: #e7eaee;
+    --muted: #9aa4b1;
+    --border: #2b323c;
+    --primary: #6f9fff;
+    --primary-contrast: #0a1220;
+    --go: #74d9a0;     --go-bg: #12301f;
+    --skip: #b6bfca;   --skip-bg: #262c35;
+    --red: #ffb7b7;    --red-bg: #3b1717;    --red-border: #6e2c2c;
+    --yellow: #ffe28f; --yellow-bg: #3a3010; --yellow-border: #6e5c1d;
+    --blue: #adc9ff;   --blue-bg: #16264a;   --blue-border: #2f4b88;
+    --shadow: none;
+  }
+}
+
+/* ===== Base ===== */
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Tahoma, "Noto Sans Arabic", "Noto Sans", Arial, sans-serif;
+}
+body.modal-open { overflow: hidden; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 14px; }
+main.wrap { padding-bottom: 48px; }
+:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+
+/* ===== Top bar ===== */
+.topbar { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--border); }
+.topbar .wrap { display: flex; align-items: center; gap: 10px; min-height: 60px; }
+.topbar h1 { margin: 0; font-size: 1.15rem; line-height: 1.3; }
+.topbar h1 small { display: block; font-size: .75rem; font-weight: 400; color: var(--muted); }
+.topbar .grow { flex: 1; min-width: 0; }
+.updated { padding-top: 10px; font-size: .78rem; color: var(--muted); }
+
+/* ===== Buttons and inputs ===== */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 0 14px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.btn:hover { border-color: var(--primary); }
+.btn.primary { background: var(--primary); color: var(--primary-contrast); border-color: var(--primary); }
+.btn.disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.icon { padding: 0; width: 44px; }
+.btn .ico { display: inline-block; }
+.btn.spin .ico { animation: spin .9s linear infinite; }
+.field-input, select.field-input {
+  width: 100%; min-height: 44px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit;
+}
+
+/* ===== Counters ===== */
+.counters { display: flex; gap: 8px; overflow-x: auto; padding: 12px 0 10px; scrollbar-width: thin; }
+.counter {
+  flex: 0 0 auto; min-width: 88px; display: flex; flex-direction: column; align-items: center;
+  padding: 8px 12px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+}
+.counter .n { font-size: 1.3rem; font-weight: 700; line-height: 1.2; }
+.counter .l { font-size: .78rem; color: var(--muted); white-space: nowrap; }
+.counter.attn { background: var(--yellow-bg); border-color: var(--yellow-border); }
+.counter.attn .l { color: var(--yellow); }
+.counter[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--primary); border-color: var(--primary); }
+
+/* ===== Filters ===== */
+.searchrow { display: flex; gap: 8px; }
+.searchrow .field-input { flex: 1; }
+.badge-count {
+  display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 99px; font-size: .75rem; line-height: 20px;
+  background: var(--primary); color: var(--primary-contrast); text-align: center;
+}
+.panel {
+  margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+}
+.panel label { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; color: var(--muted); }
+.panel .full { grid-column: 1 / -1; }
+.sortrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+.sortrow label { display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+.sortrow select { min-width: 190px; }
+.count { font-size: .9rem; color: var(--muted); }
+
+/* ===== Cards ===== */
+.grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.card {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.card[data-decision="Go"] { border-color: var(--go); }
+.card[data-decision="Skip"] { opacity: .72; }
+.card.busy { opacity: .6; pointer-events: none; }
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.title { margin: 0; flex: 1; min-width: 0; font-size: 1.05rem; line-height: 1.45; }
+.title-btn {
+  display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit;
+  font: inherit; font-weight: 700; text-align: start; cursor: pointer; overflow-wrap: anywhere;
+}
+.title-btn:hover { text-decoration: underline; }
+.company { font-weight: 600; overflow-wrap: anywhere; }
+.match { flex: 0 0 auto; min-width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.match-num { font-size: 1.15rem; font-weight: 700; line-height: 1.2; }
+.match.none .match-num { color: var(--muted); }
+.bar { display: block; width: 64px; height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--primary); }
+.meta, .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 1px 9px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: .85rem; }
+.chip.score { color: var(--text); font-weight: 600; }
+.badge {
+  display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 99px;
+  border: 1px solid var(--border); font-size: .78rem; font-weight: 700; background: var(--surface-2); color: var(--muted);
+}
+.badge.red { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
+.badge.yellow { background: var(--yellow-bg); border-color: var(--yellow-border); color: var(--yellow); }
+.badge.blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.links .btn { flex: 1 1 auto; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg-btn {
+  min-height: 44px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font: inherit; font-weight: 700; cursor: pointer;
+}
+.seg-btn:disabled { opacity: .45; cursor: not-allowed; }
+.seg-btn.go.on { background: var(--go-bg); color: var(--go); border-color: var(--go); }
+.seg-btn.skip.on { background: var(--skip-bg); color: var(--skip); border-color: var(--skip); }
+
+/* ===== States (loading / empty / error) ===== */
+.state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 16px; text-align: center; color: var(--muted); }
+.state strong { color: var(--text); font-size: 1.05rem; }
+.state p { margin: 0; max-width: 480px; }
+.spinner { width: 32px; height: 32px; border-radius: 50%; border: 3px solid var(--border); border-top-color: var(--primary); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner, .btn.spin .ico { animation-duration: 3s; } }
+
+/* ===== Detail dialog ===== */
+dialog {
+  padding: 0; border: 0; border-radius: 16px; overflow: hidden;
+  width: min(720px, calc(100% - 20px)); max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px);
+  background: var(--surface); color: var(--text); box-shadow: 0 24px 64px rgba(0,0,0,.4);
+}
+dialog::backdrop { background: rgba(5, 8, 12, .55); }
+.sheet { display: flex; flex-direction: column; max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); }
+.sheet-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.sheet-head .grow { flex: 1; min-width: 0; }
+.sheet-head h2 { margin: 0; font-size: 1.15rem; line-height: 1.4; overflow-wrap: anywhere; }
+.sheet-head .sub { color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
+.sheet-body { overflow: auto; padding: 14px 16px 22px; display: flex; flex-direction: column; gap: 14px; }
+.actions { display: flex; flex-direction: column; gap: 10px; }
+.callout { padding: 10px 12px; border-radius: 10px; border: 1px solid; }
+.callout.red { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
+.callout.blue { background: var(--blue-bg); border-color: var(--blue-border); color: var(--blue); }
+.callout b { display: block; margin-bottom: 2px; }
+.callout div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fields { margin: 0; }
+.field { display: grid; grid-template-columns: 1fr; gap: 2px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.field dt { color: var(--muted); font-size: .84rem; }
+.field dd { margin: 0; overflow-wrap: anywhere; }
+.field a { color: var(--primary); }
+.notes h3 { margin: 0 0 6px; font-size: .95rem; }
+.score { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.notes-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.ext:empty { display: none; }
+
+@media (min-width: 560px) {
+  .field { grid-template-columns: 150px 1fr; gap: 12px; }
+}
+@media (max-width: 600px) {
+  dialog { width: 100%; max-width: none; height: 100vh; height: 100dvh; max-height: none; margin: 0; border-radius: 0; }
+  .sheet { height: 100%; max-height: none; }
+}
+@media (min-width: 720px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+  .counters { flex-wrap: wrap; overflow: visible; }
+}
+@media (min-width: 900px) {
+  .panel { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+}
+@media (min-width: 1020px) {
+  .grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ===== Toast ===== */
+.toast {
+  position: fixed; inset-inline: 12px; bottom: 16px; margin: 0 auto; max-width: 520px; z-index: 50;
+  padding: 12px 16px; border-radius: 12px; background: #1f2937; color: #fff; font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+.toast.error { background: #8f1d1d; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <h1 class="grow">الوظائف الشاغرة <small>Job vacancies</small></h1>
+    <button type="button" class="btn" id="refresh"><span class="ico" aria-hidden="true">↻</span><span>تحديث</span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- V3 (later): the chat panel can be mounted here as a sibling <section>, or inside the detail dialog. -->
+
+  <div id="controls" hidden>
+    <div class="updated" id="updated" aria-live="polite"></div>
+    <nav class="counters" id="counters" aria-label="Status"></nav>
+
+    <section aria-label="بحث وفلاتر">
+      <div class="searchrow">
+        <input class="field-input" id="q" type="search" placeholder="بحث في Title / Company / Notes" aria-label="بحث في Title وCompany وNotes" autocomplete="off">
+        <button type="button" class="btn" id="filterToggle" aria-expanded="false" aria-controls="filterPanel">
+          <span>الفلاتر</span> <span class="badge-count" id="filterBadge" hidden></span>
+        </button>
+      </div>
+
+      <div class="panel" id="filterPanel" hidden>
+        <label>Status <select class="field-input" id="fStatus"></select></label>
+        <label>Category <select class="field-input" id="fCategory"></select></label>
+        <label>Work Mode <select class="field-input" id="fWorkMode"></select></label>
+        <label>Decision
+          <select class="field-input" id="fDecision">
+            <option value="__all__">الكل</option>
+            <option value="__none__">بدون قرار</option>
+            <option value="Go">Go</option>
+            <option value="Skip">Skip</option>
+          </select>
+        </label>
+        <label>Hard Stop
+          <select class="field-input" id="fHardStop">
+            <option value="__all__">الكل</option>
+            <option value="yes">نعم</option>
+            <option value="no">لا</option>
+          </select>
+        </label>
+        <label><span><bdi dir="ltr">Match %</bdi> (الحد الأدنى)</span>
+          <input class="field-input" id="fMin" type="number" inputmode="numeric" min="0" max="100" step="1" placeholder="0" dir="ltr">
+        </label>
+        <div class="full"><button type="button" class="btn" id="resetFilters">إعادة ضبط الفلاتر</button></div>
+      </div>
+
+      <div class="sortrow">
+        <span class="count" id="count" aria-live="polite"></span>
+        <label>ترتيب
+          <select class="field-input" id="sort">
+            <option value="match-desc">Match %&lrm; — الأعلى أولاً</option>
+            <option value="match-asc">Match %&lrm; — الأدنى أولاً</option>
+            <option value="date-desc">Date Found — الأحدث أولاً</option>
+            <option value="date-asc">Date Found — الأقدم أولاً</option>
+          </select>
+        </label>
+      </div>
+    </section>
+  </div>
+
+  <div class="state" id="state" role="status" hidden></div>
+  <section class="grid" id="list" aria-label="قائمة الوظائف"></section>
+</main>
+
+<dialog id="detail" aria-labelledby="detailTitle">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div class="grow">
+        <h2 id="detailTitle"></h2>
+        <div class="sub" id="detailCompany"></div>
+      </div>
+      <button type="button" class="btn icon" id="detailClose" aria-label="إغلاق">✕</button>
+    </div>
+    <div class="sheet-body" id="detailBody"></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===========================================================================
+   * Rules for this file
+   *  - Sheet content is untrusted. Text is only ever set with textContent.
+   *    No HTML is built from strings anywhere in this script.
+   *  - Links are rendered only when they are valid https:// URLs, with rel="noopener noreferrer".
+   *  - The server is reached only through Api (below). Status is never written from here.
+   * ======================================================================== */
+
+  var ALL = '__all__';
+  var NONE = '__none__';
+  var KNOWN_STATUSES = ['New', 'Needs Input', 'Ready', 'Applied', 'Closed', 'Skipped'];
+
+  var T = {
+    loading: 'جارٍ تحميل الوظائف…',
+    network: 'تعذّر الاتصال بالخادم. تحقق من الإنترنت ثم حاول مرة أخرى.',
+    badResponse: 'وصل رد غير متوقع من الخادم. حاول مرة أخرى.',
+    loadFailed: 'تعذّر تحميل الوظائف',
+    retry: 'إعادة المحاولة',
+    emptyAllTitle: 'لا توجد وظائف بعد',
+    emptyAllText: 'تبويب Tracker لا يحتوي على أي وظيفة حالياً.',
+    emptyFilterTitle: 'لا توجد وظائف مطابقة',
+    emptyFilterText: 'غيّر الفلاتر أو كلمات البحث لعرض نتائج.',
+    resetFilters: 'إعادة ضبط الفلاتر',
+    refreshed: 'تم تحديث القائمة',
+    savedGo: 'تم حفظ Decision = Go',
+    savedSkip: 'تم حفظ Decision = Skip',
+    savedClear: 'تم مسح Decision',
+    wait: 'يرجى الانتظار حتى تنتهي العملية الحالية.',
+    openJob: 'فتح الوظيفة',
+    apply: 'تقديم',
+    details: 'تفاصيل',
+    noLink: 'لا يوجد رابط صالح',
+    hardStopTitle: 'استبعاد محتمل (Hard Stop)',
+    confirmTitle: 'سؤال بانتظار تأكيدك — ليس استبعاداً',
+    jobGone: 'لم تعد هذه الوظيفة موجودة في الملف.'
+  };
+
+  /* ---------------------------------------------------------------------------
+   * Extension points. V2 / V3 register here instead of editing the core below.
+   *   V2 (files):  Hooks.cardActions.push(function (job, row) { ... });
+   *                Hooks.detailSections.push(function (job, body) { ... });
+   *   V3 (chat):   add Api.chatSend / Api.chatHistory and a panel that reuses h() and toast().
+   * ------------------------------------------------------------------------ */
+  var Hooks = { cardActions: [], detailSections: [] };
+
+  /* ---------------------------------------------------------------------------
+   * Server API: the only place that talks to Code.gs. Always resolves { ok, ... }.
+   * ------------------------------------------------------------------------ */
+  var Api = {
+    call: function (fn, args) {
+      return new Promise(function (resolve) {
+        var runner = google.script.run
+          .withSuccessHandler(function (res) {
+            resolve(res && typeof res === 'object' ? res : { ok: false, error: T.badResponse });
+          })
+          .withFailureHandler(function () {
+            resolve({ ok: false, error: T.network });
+          });
+        try {
+          runner[fn].apply(runner, args || []);
+        } catch (e) {
+          resolve({ ok: false, error: T.network });
+        }
+      });
+    },
+    getJobs: function (force) { return this.call('getJobs', [force === true]); },
+    setDecision: function (id, decision) { return this.call('setDecision', [id, decision]); }
+  };
+
+  /* ---------------------------------------------------------------------------
+   * State
+   * ------------------------------------------------------------------------ */
+  function defaultFilters() {
+    return { q: '', status: ALL, category: ALL, workMode: ALL, decision: ALL, hardStop: ALL, minMatch: 0 };
+  }
+  var state = {
+    jobs: [],
+    byId: new Map(),
+    loaded: false,
+    loading: false,
+    fetchedAt: null,
+    cached: false,
+    filters: defaultFilters(),
+    sort: 'match-desc',
+    saving: new Set(),
+    openId: null
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var els = {
+    controls: $('controls'), counters: $('counters'), q: $('q'),
+    filterToggle: $('filterToggle'), filterPanel: $('filterPanel'), filterBadge: $('filterBadge'),
+    fStatus: $('fStatus'), fCategory: $('fCategory'), fWorkMode: $('fWorkMode'),
+    fDecision: $('fDecision'), fHardStop: $('fHardStop'), fMin: $('fMin'),
+    resetFilters: $('resetFilters'), sort: $('sort'), count: $('count'),
+    state: $('state'), list: $('list'), refresh: $('refresh'), updated: $('updated'),
+    dlg: $('detail'), dTitle: $('detailTitle'), dCompany: $('detailCompany'),
+    dBody: $('detailBody'), dClose: $('detailClose'), toast: $('toast')
+  };
+
+  /* ---------------------------------------------------------------------------
+   * DOM helper: builds nodes with textContent only.
+   * ------------------------------------------------------------------------ */
+  function h(tag, opts, kids) {
+    var n = document.createElement(tag);
+    opts = opts || {};
+    if (opts.cls) n.className = opts.cls;
+    if (opts.text !== undefined && opts.text !== null) {
+      if (opts.auto) {
+        // Sheet text (English or Arabic) is isolated in <bdi>: its own punctuation and word order
+        // resolve correctly while the block keeps the page's RTL alignment.
+        var b = document.createElement('bdi');
+        b.textContent = String(opts.text);
+        n.appendChild(b);
+      } else {
+        n.textContent = String(opts.text);
+      }
+    }
+    if (opts.attrs) Object.keys(opts.attrs).forEach(function (k) { n.setAttribute(k, opts.attrs[k]); });
+    if (opts.on) Object.keys(opts.on).forEach(function (ev) { n.addEventListener(ev, opts.on[ev]); });
+    (kids || []).forEach(function (k) { if (k) n.appendChild(k); });
+    return n;
+  }
+  function clear(n) { n.textContent = ''; }
+  function setBidiText(node, text) {
+    clear(node);
+    var b = document.createElement('bdi');
+    b.textContent = String(text || '');
+    node.appendChild(b);
+  }
+
+  /** Returns a normalized https:// URL, or null for anything else (text, http:, javascript:, data:, ...). */
+  function safeHttpsUrl(raw) {
+    if (typeof raw !== 'string') return null;
+    var s = raw.trim();
+    if (!/^https:\/\//i.test(s) || /\s/.test(s)) return null;
+    try {
+      var u = new URL(s);
+      return u.protocol === 'https:' ? u.href : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function linkEl(url, text, cls) {
+    return h('a', {
+      cls: cls, text: text,
+      attrs: { href: url, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer' }
+    });
+  }
+  function fmtNum(n) { return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10); }
+
+  /** Lower-case and strip Arabic diacritics / tatweel / alef variants so Arabic search is forgiving. */
+  function norm(s) {
+    return String(s || '').toLowerCase()
+      .replace(/[ً-ٰٟـ]/g, '')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ى/g, 'ي');
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Data
+   * ------------------------------------------------------------------------ */
+  function prepare(job) {
+    job._hay = norm([job.title, job.company, job.notes].join('\n'));
+    return job;
+  }
+  function indexJobs() {
+    state.byId = new Map();
+    state.jobs.forEach(function (j) { state.byId.set(j.id, j); });
+  }
+  function setJobs(jobs) {
+    state.jobs = jobs.map(prepare);
+    indexJobs();
+    rebuildFilterOptions();
+  }
+  function upsertJob(job) {
+    prepare(job);
+    var i = state.jobs.findIndex(function (j) { return j.id === job.id; });
+    if (i === -1) state.jobs.push(job); else state.jobs[i] = job;
+    indexJobs();
+    rebuildFilterOptions();
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Filtering and sorting
+   * ------------------------------------------------------------------------ */
+  function fieldMatches(value, f) {
+    return f === ALL || (f === NONE ? value === '' : value === f);
+  }
+  function passes(job, f, tokens) {
+    if (!fieldMatches(job.status, f.status)) return false;
+    if (!fieldMatches(job.category, f.category)) return false;
+    if (!fieldMatches(job.workMode, f.workMode)) return false;
+    if (f.decision !== ALL && (f.decision === NONE ? job.decision !== '' : job.decision !== f.decision)) return false;
+    if (f.hardStop === 'yes' && job.hardStop === '') return false;
+    if (f.hardStop === 'no' && job.hardStop !== '') return false;
+    if (f.minMatch > 0 && (job.match === null || job.match < f.minMatch)) return false;
+    for (var i = 0; i < tokens.length; i++) {
+      if (job._hay.indexOf(tokens[i]) === -1) return false;
+    }
+    return true;
+  }
+  function cmpMatch(a, b, dir) {            // nulls always last
+    if (a.match === null && b.match === null) return 0;
+    if (a.match === null) return 1;
+    if (b.match === null) return -1;
+    return (a.match - b.match) * dir;
+  }
+  function cmpDate(a, b, dir) {             // yyyy-mm-dd sorts as text; empty always last
+    if (!a.dateFound && !b.dateFound) return 0;
+    if (!a.dateFound) return 1;
+    if (!b.dateFound) return -1;
+    return a.dateFound < b.dateFound ? -dir : (a.dateFound > b.dateFound ? dir : 0);
+  }
+  function cmpId(a, b) { return a.id.localeCompare(b.id, 'en', { numeric: true }); }
+  var SORTERS = {
+    'match-desc': function (a, b) { return cmpMatch(a, b, -1) || cmpDate(a, b, -1) || cmpId(a, b); },
+    'match-asc':  function (a, b) { return cmpMatch(a, b, 1) || cmpDate(a, b, -1) || cmpId(a, b); },
+    'date-desc':  function (a, b) { return cmpDate(a, b, -1) || cmpMatch(a, b, -1) || cmpId(a, b); },
+    'date-asc':   function (a, b) { return cmpDate(a, b, 1) || cmpMatch(a, b, -1) || cmpId(a, b); }
+  };
+  function visibleJobs() {
+    var tokens = norm(state.filters.q).split(/\s+/).filter(Boolean);
+    return state.jobs.filter(function (j) { return passes(j, state.filters, tokens); })
+      .sort(SORTERS[state.sort] || SORTERS['match-desc']);
+  }
+  function activeFilterCount() {
+    var f = state.filters;
+    return [f.q.trim() !== '', f.status !== ALL, f.category !== ALL, f.workMode !== ALL,
+            f.decision !== ALL, f.hardStop !== ALL, f.minMatch > 0].filter(Boolean).length;
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Filter controls
+   * ------------------------------------------------------------------------ */
+  function fillSelect(sel, options, current) {
+    clear(sel);
+    var found = false;
+    options.forEach(function (o) {
+      if (o.value === current) found = true;
+      sel.appendChild(h('option', { text: o.label, attrs: { value: o.value } }));
+    });
+    sel.value = found ? current : ALL;
+    return sel.value;
+  }
+  function distinct(key) {
+    var seen = new Set();
+    state.jobs.forEach(function (j) { seen.add(j[key]); });
+    return Array.from(seen);
+  }
+  function valueOptions(values, ordered) {
+    var named = values.filter(function (v) { return v !== ''; });
+    if (ordered) {
+      named.sort(function (a, b) {
+        var ia = ordered.indexOf(a), ib = ordered.indexOf(b);
+        if (ia === -1 && ib === -1) return a.localeCompare(b);
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    } else {
+      named.sort(function (a, b) { return a.localeCompare(b); });
+    }
+    var opts = [{ value: ALL, label: 'الكل' }];
+    named.forEach(function (v) { opts.push({ value: v, label: v }); });
+    if (values.indexOf('') !== -1) opts.push({ value: NONE, label: '— بدون —' });
+    return opts;
+  }
+  function rebuildFilterOptions() {
+    var f = state.filters;
+    var statusValues = KNOWN_STATUSES.concat(distinct('status')).filter(function (v, i, a) { return a.indexOf(v) === i; });
+    f.status = fillSelect(els.fStatus, valueOptions(statusValues, KNOWN_STATUSES), f.status);
+    f.category = fillSelect(els.fCategory, valueOptions(distinct('category')), f.category);
+    f.workMode = fillSelect(els.fWorkMode, valueOptions(distinct('workMode')), f.workMode);
+  }
+  function syncControls() {
+    var f = state.filters;
+    els.q.value = f.q;
+    els.fStatus.value = f.status;
+    els.fCategory.value = f.category;
+    els.fWorkMode.value = f.workMode;
+    els.fDecision.value = f.decision;
+    els.fHardStop.value = f.hardStop;
+    els.fMin.value = f.minMatch > 0 ? String(f.minMatch) : '';
+    els.sort.value = state.sort;
+  }
+  function resetFilters() {
+    state.filters = defaultFilters();
+    syncControls();
+    refreshView();
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Rendering
+   * ------------------------------------------------------------------------ */
+  function renderAll() {
+    renderCounters();
+    renderList();
+    refreshDetail();
+    updateFilterBadge();
+  }
+  function refreshView() {           // filters changed: counters only change their highlighted chip
+    renderCounters();
+    renderList();
+    updateFilterBadge();
+  }
+  function updateFilterBadge() {
+    var n = activeFilterCount();
+    els.filterBadge.hidden = n === 0;
+    els.filterBadge.textContent = String(n);
+  }
+
+  function renderCounters() {
+    var counts = {};
+    state.jobs.forEach(function (j) { counts[j.status] = (counts[j.status] || 0) + 1; });
+
+    var items = [{ token: ALL, label: 'All', n: state.jobs.length }];
+    KNOWN_STATUSES.forEach(function (s) { items.push({ token: s, label: s, n: counts[s] || 0 }); });
+    Object.keys(counts).sort().forEach(function (s) {
+      if (s !== '' && KNOWN_STATUSES.indexOf(s) === -1) items.push({ token: s, label: s, n: counts[s] });
+    });
+    if (counts['']) items.push({ token: NONE, label: '— بدون —', n: counts[''] });
+
+    clear(els.counters);
+    items.forEach(function (it) {
+      var pressed = state.filters.status === it.token;
+      var b = h('button', {
+        cls: 'counter' + (it.token === 'Needs Input' ? ' attn' : ''),
+        attrs: { type: 'button', 'aria-pressed': pressed ? 'true' : 'false' },
+        on: { click: function () { setStatusFilter(pressed ? ALL : it.token); } }
+      }, [h('span', { cls: 'n', text: it.n }), h('span', { cls: 'l', text: it.label })]);
+      els.counters.appendChild(b);
+    });
+  }
+  function setStatusFilter(token) {
+    state.filters.status = token;
+    els.fStatus.value = token;
+    if (els.fStatus.value !== token) { els.fStatus.value = ALL; state.filters.status = ALL; }
+    refreshView();
+  }
+
+  function renderList() {
+    var list = visibleJobs();
+    els.count.textContent = 'عرض ' + list.length + ' من ' + state.jobs.length + ' وظيفة';
+    clear(els.list);
+
+    if (!state.jobs.length) {
+      showState('empty', T.emptyAllTitle, T.emptyAllText);
+      return;
+    }
+    if (!list.length) {
+      showState('empty', T.emptyFilterTitle, T.emptyFilterText, T.resetFilters, resetFilters);
+      return;
+    }
+    hideState();
+    var frag = document.createDocumentFragment();
+    list.forEach(function (j) { frag.appendChild(buildCard(j)); });
+    els.list.appendChild(frag);
+  }
+
+  function showState(kind, title, text, actionLabel, onAction) {
+    clear(els.state);
+    els.state.hidden = false;
+    els.state.setAttribute('data-kind', kind);
+    if (kind === 'loading') els.state.appendChild(h('div', { cls: 'spinner', attrs: { 'aria-hidden': 'true' } }));
+    if (title) els.state.appendChild(h('strong', { text: title }));
+    if (text) els.state.appendChild(h('p', { text: text }));
+    if (actionLabel) els.state.appendChild(h('button', { cls: 'btn primary', text: actionLabel, attrs: { type: 'button' }, on: { click: onAction } }));
+  }
+  function hideState() { els.state.hidden = true; clear(els.state); }
+
+  function matchEl(m) {
+    if (m === null) {
+      return h('div', { cls: 'match none', attrs: { title: 'Match %' } }, [h('span', { cls: 'match-num', text: '—' })]);
+    }
+    var fill = h('i');
+    fill.style.width = Math.max(0, Math.min(100, m)) + '%';
+    return h('div', { cls: 'match', attrs: { title: 'Match %' } }, [
+      h('span', { cls: 'match-num', text: fmtNum(m) + '%', attrs: { dir: 'ltr' } }),
+      h('span', { cls: 'bar' }, [fill])
+    ]);
+  }
+
+  function badgesFor(job) {
+    var wrap = h('div', { cls: 'badges' });
+    if (job.hardStopKind === 'stop') {
+      wrap.appendChild(h('span', { cls: 'badge red', text: 'Hard Stop', attrs: { title: job.hardStop } }));
+    } else if (job.hardStopKind === 'confirm') {
+      wrap.appendChild(h('span', { cls: 'badge blue', text: 'To confirm', attrs: { title: job.hardStop } }));
+    }
+    if (job.status) {
+      wrap.appendChild(h('span', { cls: 'badge' + (job.status === 'Needs Input' ? ' yellow' : ''), text: job.status }));
+    }
+    return wrap.childNodes.length ? wrap : null;
+  }
+
+  function linkButtons(job, withDetails) {
+    var row = h('div', { cls: 'links' });
+    var jobUrl = safeHttpsUrl(job.jobUrl);
+    row.appendChild(jobUrl
+      ? linkEl(jobUrl, T.openJob, 'btn primary')
+      : h('span', { cls: 'btn disabled', text: T.openJob, attrs: { 'aria-disabled': 'true', title: T.noLink } }));
+    var applyUrl = safeHttpsUrl(job.applyUrl);
+    if (applyUrl) row.appendChild(linkEl(applyUrl, T.apply, 'btn'));
+    if (withDetails) {
+      row.appendChild(h('button', { cls: 'btn', text: T.details, attrs: { type: 'button' }, on: { click: function () { openDetail(job.id); } } }));
+    }
+    return row;
+  }
+
+  function decisionControls(job, scope) {
+    var busy = state.saving.has(job.id);
+    var group = h('div', { cls: 'seg', attrs: { role: 'group', 'aria-label': 'Decision' } });
+    [['Go', 'Go'], ['Skip', 'Skip'], ['', 'Clear']].forEach(function (d) {
+      var value = d[0], label = d[1];
+      var on = value !== '' && job.decision === value;
+      var b = h('button', {
+        cls: 'seg-btn ' + (value ? value.toLowerCase() : 'clear') + (on ? ' on' : ''),
+        text: label,
+        attrs: { type: 'button', 'data-fk': scope + ':' + job.id + ':' + (value || 'clear') },
+        on: { click: function () { changeDecision(job.id, value); } }
+      });
+      if (value) b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (busy || (value === '' && job.decision === '')) b.disabled = true;
+      group.appendChild(b);
+    });
+    return group;
+  }
+
+  function buildCard(job) {
+    var card = h('article', {
+      cls: 'card' + (state.saving.has(job.id) ? ' busy' : ''),
+      attrs: { 'data-job-id': job.id, 'data-decision': job.decision }
+    });
+
+    var titleBtn = h('button', { cls: 'title-btn', text: job.title || job.id, auto: true, attrs: { type: 'button' }, on: { click: function () { openDetail(job.id); } } });
+    card.appendChild(h('div', { cls: 'card-head' }, [h('h3', { cls: 'title' }, [titleBtn]), matchEl(job.match)]));
+
+    if (job.company) card.appendChild(h('div', { cls: 'company', text: job.company, auto: true }));
+
+    var meta = h('div', { cls: 'meta' });
+    [['Location', job.location], ['Work Mode', job.workMode], ['Salary', job.salary]].forEach(function (m) {
+      if (m[1]) meta.appendChild(h('span', { cls: 'chip', text: m[1], auto: true, attrs: { title: m[0] } }));
+    });
+    if (meta.childNodes.length) card.appendChild(meta);
+
+    var badges = badgesFor(job);
+    if (badges) card.appendChild(badges);
+
+    var links = linkButtons(job, true);
+    card.appendChild(links);
+    runHooks(Hooks.cardActions, job, links);
+
+    card.appendChild(decisionControls(job, 'card'));
+    return card;
+  }
+
+  function runHooks(list, job, container) {
+    list.forEach(function (fn) {
+      try { fn(job, container); } catch (e) { if (window.console) console.error(e); }
+    });
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Detail dialog
+   * ------------------------------------------------------------------------ */
+  var DETAIL_FIELDS = [
+    ['id', 'ID'], ['title', 'Title'], ['category', 'Category'], ['company', 'Company'],
+    ['location', 'Location'], ['workMode', 'Work Mode'], ['salary', 'Salary'], ['source', 'Source'],
+    ['jobUrl', 'Job URL'], ['applyUrl', 'Apply URL'], ['dateFound', 'Date Found'], ['match', 'Match %'],
+    ['hardStop', 'Hard Stop'], ['decision', 'Decision'], ['status', 'Status'], ['pkg', 'Package']
+  ];
+  var SCORE_NAMES = { T: 'Tasks', M: 'Minimum', D: 'Differentiators' };
+
+  /** "T50 M26 D5." at the start of Notes -> { lead: 'T50 M26 D5.' (as written), tokens: [{code:'T', value:'50'}, ...] } or null. */
+  function parseScore(notes) {
+    var m = /^\s*([A-Z]\d+(?:\.\d+)?(?:\s+[A-Z]\d+(?:\.\d+)?)*)\s*\./.exec(notes || '');
+    if (!m) return null;
+    return {
+      lead: m[0],
+      tokens: m[1].split(/\s+/).map(function (t) { return { code: t.charAt(0), value: t.slice(1) }; })
+    };
+  }
+
+  function fieldValueNode(key, job) {
+    var v = job[key];
+    if (key === 'jobUrl' || key === 'applyUrl') {
+      var url = safeHttpsUrl(v);
+      if (url) return linkEl(url, v, '');
+    }
+    if (key === 'match') return h('span', { text: v === null ? '—' : fmtNum(v) + '%', attrs: { dir: 'ltr' } });
+    return h('span', { text: v === '' || v === null ? '—' : v, auto: true });
+  }
+
+  function buildDetail() {
+    var job = state.byId.get(state.openId);
+    if (!job) { closeDetail(); return; }
+
+    setBidiText(els.dTitle, job.title || job.id);
+    setBidiText(els.dCompany, job.company);
+
+    var scroll = els.dBody.scrollTop;
+    clear(els.dBody);
+    var body = els.dBody;
+
+    var badges = badgesFor(job);
+    if (badges) body.appendChild(badges);
+
+    if (job.hardStopKind) {
+      var isStop = job.hardStopKind === 'stop';
+      body.appendChild(h('div', { cls: 'callout ' + (isStop ? 'red' : 'blue') }, [
+        h('b', { text: isStop ? T.hardStopTitle : T.confirmTitle }),
+        h('div', { text: job.hardStop, auto: true })
+      ]));
+    }
+
+    body.appendChild(h('div', { cls: 'actions', attrs: { 'data-job-id': job.id } }, [
+      decisionControls(job, 'detail'),
+      linkButtons(job, false)
+    ]));
+
+    var dl = h('dl', { cls: 'fields' });
+    DETAIL_FIELDS.forEach(function (f) {
+      dl.appendChild(h('div', { cls: 'field' }, [
+        h('dt', { text: f[1], auto: true }),
+        h('dd', null, [fieldValueNode(f[0], job)])
+      ]));
+    });
+    body.appendChild(dl);
+
+    var notes = h('section', { cls: 'notes' }, [h('h3', { text: 'Notes' })]);
+    var score = parseScore(job.notes);
+    if (score) {
+      var chips = h('div', { cls: 'score' });
+      score.tokens.forEach(function (s) {
+        chips.appendChild(h('span', { cls: 'chip score', text: (SCORE_NAMES[s.code] || s.code) + ' ' + s.value, attrs: { dir: 'ltr', title: s.code + s.value } }));
+      });
+      notes.appendChild(chips);
+    }
+    // Notes are mostly Arabic, so the block is RTL. The leading "T50 M26 D5." is isolated as LTR so its
+    // final period stays next to the "5". The text itself is shown unchanged and in full.
+    var notesBox = h('div', { cls: 'notes-text', attrs: { dir: 'rtl' } });
+    if (job.notes === '') {
+      notesBox.textContent = '—';
+    } else if (score) {
+      notesBox.appendChild(h('bdi', { text: score.lead.trim(), attrs: { dir: 'ltr' } }));
+      notesBox.appendChild(document.createTextNode(job.notes.slice(score.lead.length)));
+    } else {
+      notesBox.textContent = job.notes;
+    }
+    notes.appendChild(notesBox);
+    body.appendChild(notes);
+
+    var ext = h('div', { cls: 'ext' });
+    body.appendChild(ext);
+    runHooks(Hooks.detailSections, job, ext);
+
+    body.scrollTop = scroll;
+  }
+
+  function refreshDetail() { if (state.openId !== null) buildDetail(); }
+  function openDetail(id) {
+    state.openId = id;
+    buildDetail();
+    if (state.openId !== null && !els.dlg.open) {
+      els.dlg.showModal();
+      document.body.classList.add('modal-open');
+      els.dBody.scrollTop = 0;
+    }
+  }
+  function closeDetail() {
+    state.openId = null;
+    if (els.dlg.open) els.dlg.close();
+    document.body.classList.remove('modal-open');
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Actions
+   * ------------------------------------------------------------------------ */
+  var toastTimer = null;
+  function toast(msg, kind) {
+    (els.dlg.open ? els.dlg : document.body).appendChild(els.toast);   // keep it above the modal
+    els.toast.textContent = msg;
+    els.toast.className = 'toast' + (kind ? ' ' + kind : '');
+    els.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { els.toast.hidden = true; }, kind === 'error' ? 7000 : 3000);
+  }
+
+  function focusKey() {
+    var a = document.activeElement;
+    return a && a.getAttribute ? a.getAttribute('data-fk') : null;
+  }
+  function restoreFocus(key) {
+    if (!key) return;
+    var n = document.querySelector('[data-fk="' + CSS.escape(key) + '"]');
+    if (n && !n.disabled) n.focus({ preventScroll: true });
+  }
+
+  function changeDecision(id, value) {
+    var job = state.byId.get(id);
+    if (!job || job.decision === value) return Promise.resolve();
+    if (state.saving.size || state.loading) { toast(T.wait); return Promise.resolve(); }
+
+    var fk = focusKey();
+    state.saving.add(id);
+    renderAll();
+
+    return Api.setDecision(id, value).then(function (res) {
+      state.saving.delete(id);
+      if (res.ok && res.job) {
+        upsertJob(res.job);
+        var msg = value === 'Go' ? T.savedGo : (value === 'Skip' ? T.savedSkip : T.savedClear);
+        toast(msg + ' — ' + id);
+      } else {
+        toast(res.error || T.network, 'error');
+      }
+      renderAll();
+      restoreFocus(fk);
+    });
+  }
+
+  function setLoadingUI() {
+    els.refresh.disabled = state.loading;
+    els.refresh.classList.toggle('spin', state.loading);
+    els.list.setAttribute('aria-busy', state.loading ? 'true' : 'false');
+    if (state.loading && !state.loaded) { els.controls.hidden = true; clear(els.list); showState('loading', T.loading); }
+  }
+  function updateMeta() {
+    if (!state.fetchedAt) { els.updated.textContent = ''; return; }
+    var t = new Date(state.fetchedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    els.updated.textContent = 'آخر قراءة من الملف: ' + t + (state.cached ? ' (من الذاكرة المؤقتة)' : '');
+  }
+
+  function loadJobs(force) {
+    if (state.loading) return Promise.resolve();
+    if (state.saving.size) { toast(T.wait); return Promise.resolve(); }
+    state.loading = true;
+    setLoadingUI();
+
+    return Api.getJobs(force).then(function (res) {
+      state.loading = false;
+      if (res.ok && Array.isArray(res.jobs)) {
+        setJobs(res.jobs);
+        state.loaded = true;
+        state.fetchedAt = res.fetchedAt || Date.now();
+        state.cached = res.cached === true;
+        els.controls.hidden = false;
+        syncControls();
+        if (state.openId !== null && !state.byId.has(state.openId)) { closeDetail(); toast(T.jobGone, 'error'); }
+        renderAll();
+        updateMeta();
+        if (force) toast(T.refreshed);
+      } else if (!state.loaded) {
+        clear(els.list);
+        showState('error', T.loadFailed, res.error || T.network, T.retry, function () { loadJobs(false); });
+      } else {
+        toast(res.error || T.network, 'error');
+      }
+      setLoadingUI();
+    }).catch(function (e) {                       // a bug here must never leave the page stuck on "loading"
+      if (window.console) console.error(e);
+      state.loading = false;
+      if (!state.loaded) { clear(els.list); showState('error', T.loadFailed, T.badResponse, T.retry, function () { loadJobs(false); }); }
+      else toast(T.badResponse, 'error');
+      setLoadingUI();
+    });
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Wiring
+   * ------------------------------------------------------------------------ */
+  function setFilterPanel(open) {
+    els.filterPanel.hidden = !open;
+    els.filterToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  function init() {
+    var qTimer = null;
+    els.q.addEventListener('input', function () {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(function () { state.filters.q = els.q.value; refreshView(); }, 150);
+    });
+    [['fStatus', 'status'], ['fCategory', 'category'], ['fWorkMode', 'workMode'], ['fDecision', 'decision'], ['fHardStop', 'hardStop']]
+      .forEach(function (p) {
+        els[p[0]].addEventListener('change', function () { state.filters[p[1]] = els[p[0]].value; refreshView(); });
+      });
+    els.fMin.addEventListener('input', function () {
+      var n = parseFloat(els.fMin.value);
+      state.filters.minMatch = isFinite(n) ? Math.max(0, Math.min(100, n)) : 0;
+      refreshView();
+    });
+    els.sort.addEventListener('change', function () { state.sort = els.sort.value; renderList(); });
+    els.resetFilters.addEventListener('click', resetFilters);
+    els.filterToggle.addEventListener('click', function () { setFilterPanel(els.filterPanel.hidden); });
+    els.refresh.addEventListener('click', function () { loadJobs(true); });
+
+    els.dClose.addEventListener('click', closeDetail);
+    els.dlg.addEventListener('click', function (e) { if (e.target === els.dlg) closeDetail(); });
+    els.dlg.addEventListener('close', function () { state.openId = null; document.body.classList.remove('modal-open'); });
+
+    setFilterPanel(window.matchMedia && window.matchMedia('(min-width: 900px)').matches);
+    loadJobs(false);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
