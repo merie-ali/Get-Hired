@@ -31,7 +31,7 @@ master file kept elsewhere**, so its structure is never altered.
 | Version | Scope | Status |
 |---|---|---|
 | V1 | counters, cards, filters/search/sort, detail view, Go/Skip/Clear (Decision only), Refresh + short cache | done, tested, deployed |
-| V2 | CV / Cover Letter files from a Drive folder, linked via new tab `Files` | done, tested; reference implementation exists (§9) |
+| V2 | CV / Cover Letter files from a Drive folder, linked via new tab `Files` | done, tested; ported onto the V1 baseline (§8 Step 1) |
 | V3 | chat with Claude in the UI (Anthropic API via `UrlFetchApp`), history in new tab `Chat` | planned only |
 
 ## 2. Non-negotiable rules
@@ -96,7 +96,7 @@ Layout: 1 CONFIG + `MSG` (Arabic) · 2 `doGet` · 3 public API · 4 Tracker doma
 `doGet` serves `Index` with a title and `addMetaTag('viewport','width=device-width, initial-scale=1')`. `run_(fn)` wraps every
 public function: `appError_(code,msg)` → `{ok:false,code,error}`; anything else is logged and returned as `UNEXPECTED` with a
 generic message (no internals leak). Codes: `NO_SS NO_TRACKER EMPTY_TAB MISSING_HEADER BAD_ID BAD_DECISION NOT_FOUND DUPLICATE
-ID_CHANGED BUSY UNEXPECTED` + V2 `NO_FOLDER BAD_TYPE BAD_FILE_REF NO_FILE FILE_TRASHED NOT_IN_FOLDER DUP_LINK`.
+ID_CHANGED BUSY UNEXPECTED` + V2 `NO_FOLDER BAD_TYPE BAD_FILE_REF NO_FILE FILE_TRASHED SHORTCUT NOT_IN_FOLDER DUP_LINK`.
 
 **Mechanisms to preserve**
 - `getContext_(sheet, fields)`: row 1 → header→index map; Arabic `MISSING_HEADER`/`EMPTY_TAB`; first duplicate header wins.
@@ -114,11 +114,12 @@ ID_CHANGED BUSY UNEXPECTED` + V2 `NO_FOLDER BAD_TYPE BAD_FILE_REF NO_FILE FILE_T
 **`linkFile` order (validate everything before the first write):** (1) validate job ID, type, `fileRef` — a bare ID
 `^[A-Za-z0-9_-]{10,100}$` or an `https://drive|docs.google.com/…/d/<id>` or `…/open|uc?id=<id>` URL, ≤ 2000 chars · (2) lock
 (`BUSY`) · (3) job exists in Tracker (read-only) · (4) folder from Script Property `FILES_FOLDER_ID` (fallback
-`CONFIG.FILES.FOLDER_ID = ''`), `NO_FOLDER` on Drive error · (5) file exists, not trashed, **direct child of the folder** (no
-sub-folders/shortcuts) · (6) `getOrCreateTab_('Files')`, `getContext_`, refuse duplicates, append one row sized to the last
+`CONFIG.FILES.FOLDER_ID = ''`), `NO_FOLDER` on Drive error · (5) file exists, not trashed, not a Drive shortcut (`SHORTCUT`: it
+may point outside the folder), **direct child of the folder** (no sub-folders) · (6) `getOrCreateTab_('Files')`, `getContext_`, refuse duplicates, append one row sized to the last
 column, set Date format, flush · (7) return link (`name`,`url` from Drive, `inFolder:true`); `finally`: clear `files:v1`, release
 lock. Guarantees: Tracker never written (tests compare snapshots); Drive read-only (never create/move/rename/share); the
-folder is listed **once** (≤ 300 direct children, newest first) and names/URLs come from that listing; links whose file left the
+folder is listed **once** (the first ≤ 300 direct children Drive returns, skipping trashed files and shortcuts, then
+sorted newest first) and names/URLs come from that listing; links whose file left the
 folder return `inFolder:false` with no name.
 
 **Manifest:** `timeZone` (owner), `runtimeVersion V8`, `exceptionLogging STACKDRIVER`, `webapp {executeAs USER_DEPLOYING,
@@ -172,7 +173,7 @@ select of the folder's files, `dir=ltr` input for a Drive link/ID, button "رب�
 in Drive, then Refresh), link to open the folder. **A pasted value wins over the dropdown** and is sent as typed; empty input →
 error toast, no call; button locked while saving (double-click = one request); form rebuilt empty after success. **Safe link:**
 use the server `url` only if `https` on a `*.google.com` host, else rebuild `https://drive.google.com/open?id=<validated id>`,
-else show the name unlinked. On phones the file row shows type + date first, name below.
+else show the name unlinked. The "open folder" link is shown only under the same https + `*.google.com` rule. On phones the file row shows type + date first, name below.
 
 **Bugs found and fixed — keep them fixed**
 - Bidi: English text in RTL cards was left-aligned and `Match %` rendered as `% Match` → `<bdi>` isolation (`auto:true`,
@@ -187,7 +188,7 @@ else show the name unlinked. On phones the file row shows type + date first, nam
 ## 6. Testing
 
 Two suites, fake data only (`Company 7`, `CV - Jane Doe.pdf`, a made-up city), in `tests/`, not in the Apps Script project.
-- **Server** (`node tests/server.test.js src/Code.gs`, ~43 tests): `Code.gs` runs in a Node `vm` with in-memory mocks —
+- **Server** (`node tests/server.test.js src/Code.gs`, ~45 tests): `Code.gs` runs in a Node `vm` with in-memory mocks —
   `SpreadsheetApp` (Tracker; a **Guide** tab behind a `Proxy` that counts any access; optional `Files` tab; `insertSheet`,
   `getNumSheets`; rich-text links), `CacheService` (rejects values > 100 KB), `LockService`, `PropertiesService`, `Session`,
   `Utilities`, `DriveApp` (folders, parents, trashed), `console`. Covers: header mapping (reordered/extra columns, missing
@@ -196,8 +197,9 @@ Two suites, fake data only (`Company 7`, `CV - Jane Doe.pdf`, a made-up city), i
   never touches other columns or Guide, clears the cache even on failure; `BUSY`; lock always released; cache (chunking over
   100 KB, emoji pairs intact, expiry, force, invalidation); no internals leaked; V2: `getFiles` never creates the tab, `linkFile`
   happy path, every refusal leaves the spreadsheet unchanged, Tracker snapshot equality, 300-file cap, Script Property
-  override, Drive down ≠ V1 broken. *Gotcha:* arrays from the `vm` realm fail `deepStrictEqual` → compare via `JSON.stringify`.
-- **UI** (`node tests/ui.test.js src/Index.html tests/screens`, ~31 tests): headless Chrome via Playwright with a **stubbed
+  override, Drive down ≠ V1 broken, shortcuts refused and (like trashed files) kept out of the picker — the Drive mock
+  returns both from `folder.getFiles()` on purpose. *Gotcha:* arrays from the `vm` realm fail `deepStrictEqual` → compare via `JSON.stringify`.
+- **UI** (`node tests/ui.test.js src/Index.html tests/screens`, ~32 tests): headless Chrome via Playwright with a **stubbed
   `google.script.run`** (`addInitScript` Proxy supporting `withSuccessHandler/withFailureHandler`; answers from `window.__srv`
   with switches `failNext`, `failIds`, `failFilesNext`, `failLink`, `delay`; logs every call in `window.__calls`). Covers:
   loading → cards; counters and default sort; XSS payloads never become markup; https-only links with `rel`; badges; every
@@ -205,9 +207,10 @@ Two suites, fake data only (`Company 7`, `CV - Jane Doe.pdf`, a made-up city), i
   update from the returned job; busy lock and failed-save toast; detail view (16 fields, Notes, chips, callouts, closing);
   Refresh forces a re-read; load error + Retry; mobile layout (no overflow, RTL, 44 px, filter toggle); no HTML-string APIs in
   the source; V2: files load once with jobs, newest-per-type buttons, Files section, linking, pasted link wins, empty input,
-  refusals, double-click guard, hostile file names/URLs, Files failure ≠ jobs broken (+ Retry), Refresh re-reads files, mobile.
+  refusals, double-click guard, hostile file names/URLs, folder-link host check, Files failure ≠ jobs broken (+ Retry), Refresh re-reads files, mobile.
   Screenshots (mobile/desktop × light/dark) go to the git-ignored `tests/screens/` and are reviewed by eye.
-  The scripts still point at the original sandbox's Playwright and Chrome paths — adjust them locally.
+  Setup and commands: `TESTING.md` (`npm install`, `npm test`; `playwright-core` drives the installed Chrome, override
+  with `CHROME_PATH`).
 - **Done = both suites green + screenshots checked.**
 
 ## 7. Deployment and updates
@@ -221,8 +224,8 @@ clasp (recommended): `npm i -g @google/clasp && clasp login` (enable the Apps Sc
 `clasp deployments` · `clasp deploy -i <DEPLOYMENT_ID> -d "vX.Y"`. Commands change between versions: check `clasp --help`. The
 repo is the source of truth: never edit in the browser editor; if it happened, `clasp pull` first.
 
-Layout: `src/` (Code.gs, Index.html, appsscript.json) · `tests/` · `docs/PROJECT_BRIEF.md` · `CLAUDE.md` · `README.md` ·
-`CHANGELOG.md` · `.clasp.example.json` · `.gitignore` (at least `.clasp.json`, `.clasprc.json`, `.env*`, `node_modules/`,
+Layout: `src/` (Code.gs, Index.html, appsscript.json) · `tests/` · `TESTING.md` · `package.json` · `docs/PROJECT_BRIEF.md` ·
+`CLAUDE.md` · `README.md` · `CHANGELOG.md` · `.clasp.example.json` · `.gitignore` (at least `.clasp.json`, `.clasprc.json`, `.env*`, `node_modules/`,
 `tests/screens/`, `reference/`, `*.csv`, `*.xlsx`, `*.pdf`, `*.docx`).
 
 ## 8. Roadmap — the migration plan the owner chose
@@ -266,9 +269,10 @@ Refresh toast), `linkEl(…, auto)`, Files module + CSS. (4) V2 tests (§6). (5)
   was supplied) → V3 · short 60 s cache + forced Refresh · files picked from the folder list or pasted as link/ID, several per job,
   newest per type on cards · Drive strictly read-only · move to Claude Code + GitHub with a sanitized V1 baseline; private repo while
   developing; if ever public, publish a **fresh audited history** (never flip a messy private repo).
-- **Reference:** the V2 implementation (3 files, 43 server + 31 UI tests green) exists outside the repo. If placed in the
-  git-ignored `reference/`, use it to port V2 faithfully, but it contains two real IDs (Sheet ID in the header comment, Drive folder
-  ID in `CONFIG.FILES.FOLDER_ID`): **never copy them into tracked files.**
+- **Reference:** V2 was ported from a sanitized copy of the original implementation (3 files + suites, 43 server + 31 UI
+  tests), kept only in the git-ignored `reference/`. Beyond it, the port refuses Drive shortcuts, skips trashed files and
+  shortcuts in the picker, and host-checks the folder link. Any other copy of the original may still hold real IDs (Sheet ID
+  in the header comment, Drive folder ID in `CONFIG.FILES.FOLDER_ID`): **never copy them into tracked files.**
 - **Assumptions (keep unless changed):** cards show the newest file per type, the dialog lists all · no unlink in V2 · picker lists
   ≤ 300 files (paste a link for older ones) · known statuses are listed even at count 0 · "To confirm:" Hard Stop = question, not
   exclusion · the Notes score prefix is optional (absent → plain Notes).
