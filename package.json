@@ -1,0 +1,13 @@
+{
+  "name": "job-vacancies",
+  "private": true,
+  "description": "Google Apps Script web app over a Google Sheet (job tracker)",
+  "scripts": {
+    "test:server": "node tests/server.test.js src/Code.gs",
+    "test:ui": "node tests/ui.test.js src/Index.html tests/screens",
+    "test": "npm run test:server && npm run test:ui"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.50.0"
+  }
+}
